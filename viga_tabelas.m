@@ -20,7 +20,7 @@
 %   tabela_passos_criticos.csv h_cr por metodo, por caso de xi/modelo
 %   tabela_N_erro.csv          N = t_final/h e erro relativo, por caso
 
-outDir  = fullfile(pwd,'ImgViga');
+outDir  = viga_pasta_saida();       % <pasta do codigo>/ImgViga, nao <pwd>/ImgViga
 tabDir  = fullfile(outDir,'Tabelas');
 if ~exist(tabDir,'dir'), mkdir(tabDir); end
 

@@ -82,14 +82,20 @@ cfg.fatorSegurancaRK = 0.90;
 % eles e a solucao exata, so fica visivel depois de varios ciclos.
 % Mostrar desde t=0 esconderia justamente o efeito estudado.
 %
-% ONDE a janela fica depende de haver amortecimento ou nao:
+% ONDE a janela fica depende do amortecimento - sao TRES regimes:
 %
-%   xi != 0 : a resposta DECAI. Depois de certo ponto ela e numericamente
-%             zero e a figura vira uma linha reta - mostrar os ultimos
-%             ciclos da SIMULACAO nao mostraria nada. Entao o codigo
-%             detecta o instante em que a resposta exata cai abaixo de
-%             cfg.tolDecaimento e plota os ultimos X_ciclos_final_plot
-%             ciclos ANTES desse instante, que e onde ainda ha sinal.
+%   xi != 0, amortecimento FORTE (decai em poucos ciclos): a resposta
+%             morre logo, entao nao ha o que recortar - a figura mostra a
+%             resposta INTEIRA, de t = 0 ate o instante do decaimento.
+%             "Poucos" e definido por cfg.ciclosDecaimentoRapido (abaixo).
+%
+%   xi != 0, amortecimento FRACO: a resposta DECAI, mas devagar. Depois de
+%             certo ponto ela e numericamente zero e a figura vira uma
+%             linha reta - mostrar os ultimos ciclos da SIMULACAO nao
+%             mostraria nada. Entao o codigo detecta o instante em que a
+%             resposta exata cai abaixo de cfg.tolDecaimento e plota os
+%             ultimos X_ciclos_final_plot ciclos ANTES desse instante, que
+%             e onde ainda ha sinal.
 %
 %   xi == 0 : a resposta nao decai nunca, nao ha o que detectar - a
 %             janela sao os ultimos X_ciclos_final_plot_sem_xi ciclos do
@@ -106,30 +112,31 @@ cfg.fatorSegurancaRK = 0.90;
 % --- CASO AMORTECIDO (xi != 0) ----------------------------------------
 % nPerImpl / nPerRK: quantos ciclos de T1 sao CALCULADOS.
 %   nPerImpl (metodos diretos) e barato: a hRat=0.01 sao ~100 passos por
-%   ciclo, entao 30 ciclos custam ~3000 passos.
+%   ciclo, entao 50 ciclos custam ~5000 passos.
 %   nPerRK e CARO e domina o tempo total de execucao: cada ciclo custa
-%   ~2e5 passos POR METODO (ver fatorSegurancaRK). Aumente com parcimonia.
+%   ~2e5 passos POR METODO (ver fatorSegurancaRK), ou seja, 50 ciclos sao
+%   ~1e7 passos por metodo, por caso. Aumente com parcimonia.
 %   Se a resposta decair antes de nPer ciclos, os ciclos restantes sao
 %   calculados e jogados fora - o console avisa quando isso acontece,
 %   para voce poder reduzir.
-cfg.nPerImpl = 30;
-cfg.nPerRK   = 12;
+cfg.nPerImpl = 50;
+cfg.nPerRK   = 50;
 
 % X_ciclos_final_plot: quantos ciclos aparecem na figura, contados PARA
 %   TRAS a partir do instante de decaimento detectado.
 %   Exemplo do uso pretendido: calcular 30 ciclos e plotar os 5 ultimos
 %   antes de a resposta morrer -> nPerImpl = 30, X_ciclos_final_plot = 5.
-cfg.X_ciclos_final_plot = 5;
+cfg.X_ciclos_final_plot = 2;
 
 % --- CASO NAO AMORTECIDO (xi == 0) ------------------------------------
 % Contagens proprias: sem decaimento para conter, nao ha motivo para
 % calcular a mesma margem do caso amortecido.
-cfg.nPerImpl_sem_xi = 12;
-cfg.nPerRK_sem_xi   = 12;
+cfg.nPerImpl_sem_xi = 50;
+cfg.nPerRK_sem_xi   = 50;
 
 % X_ciclos_final_plot_sem_xi: ciclos mostrados, contados para tras a
 %   partir do FIM da simulacao.
-cfg.X_ciclos_final_plot_sem_xi = 5;
+cfg.X_ciclos_final_plot_sem_xi = 2;
 
 % --- DETECCAO DO DECAIMENTO (so usada quando xi != 0) -----------------
 % tolDecaimento: a partir de que fracao do pico a resposta conta como
@@ -137,14 +144,33 @@ cfg.X_ciclos_final_plot_sem_xi = 5;
 %   |w_tip_exato| > tolDecaimento * max|w_tip_exato| e ancora a janela
 %   ali. Sempre medido na solucao EXATA, nunca na resposta de um metodo -
 %   um metodo instavel diverge e arrastaria a janela para o lugar errado.
-%   1e-3  -> a resposta caiu a 0.1% do pico (padrao)
-%   1e-2  -> janela mais cedo, ainda com bastante sinal
+%   1e-3  -> a resposta caiu a 0.1% do pico
+%   1e-2  -> a resposta caiu a 1% do pico (valor atual): janela mais cedo,
+%            ainda com bastante sinal
 %   1e-6  -> janela mais tarde, ja perto do ruido numerico
-cfg.tolDecaimento = 1e-3;
+%   Tambem define QUANDO o decaimento e "rapido" (ver abaixo): a tolerancia
+%   e o que fixa o instante em que a resposta conta como morta.
+cfg.tolDecaimento = 1e-2;
+
+% ciclosDecaimentoRapido: se a resposta exata cair abaixo de tolDecaimento
+%   em ate este numero de ciclos de T1, o amortecimento e "forte" e a
+%   figura mostra a resposta INTEIRA (t = 0 ate o decaimento) em vez de uma
+%   janela de X_ciclos_final_plot ciclos. Acima disso vale a janela
+%   ancorada no decaimento, como antes.
+%   Ciclos ate decair a tol:   n = -ln(tol) / (2*pi*xi)
+%   Com tol = 1e-2:  xi = 0.2 -> 3.7 ciclos (resposta inteira)
+%                    xi = 0.1 -> 7.3 ciclos (janela)
+%   6     -> "decai entre 1 e 6 ciclos" = amortecimento forte
+%   0     -> desliga: sempre usa a janela
+cfg.ciclosDecaimentoRapido = 6;
 
 % ======================================================================
 %  3. FIGURAS
 % ======================================================================
+% Toda figura e gravada em <pasta do codigo>/ImgViga/... como .eps (vetorial,
+% para o paper) E .png (300 dpi, copia para conferir), por
+% viga_salva_figura.m - que tambem avisa quando um arquivo nao foi gravado
+% (ex.: aberto em outro programa). A pasta nao depende do pwd do MATLAB.
 
 % FS: tamanho da fonte dos eixos das figuras (pt).
 cfg.FS = 18;
@@ -210,11 +236,15 @@ cfg.nMaxPlot = 5000;
 % --- ESTUDO B: varredura de amortecimento fisico -----------------------
 % xi_list: razoes de amortecimento modal varridas.
 %   0     -> caso nao amortecido (a dissipacao que sobrar e 100% numerica)
-%   0.01  -> tipico de estruturas metalicas (o orientador cita 0.005-0.02);
-%            e o caso onde o amortecimento numerico mais se destaca
+%   0.002, 0.005, 0.01 -> tipico de estruturas metalicas (o orientador cita
+%            0.005-0.02); 0.01 e o caso onde o amortecimento numerico mais
+%            se destaca. Com tol = 1e-2 estes tres levam ~366, ~147 e ~73
+%            ciclos para decair (n = -ln(tol)/(2*pi*xi)) - se nPer for
+%            menor que isso, a deteccao nao dispara e a janela vai ate o
+%            fim da simulacao (o console avisa).
 %   0.20  -> mesmo valor do Estudo A, mantido para comparacao direta
 % Custo: cada valor adicionado roda a bateria inteira de novo.
-cfg.B.xi_list = [0, 0.01, 0.20];
+cfg.B.xi_list = [0, 0.005, 0.002, 0.01, 0.20];
 
 % xiZoom: qual caso de xi ganha o "zoom" na oscilacao tardia (item 21 do
 %   orientador). Deve ser um dos valores de xi_list; use [] para nenhum.
@@ -243,27 +273,31 @@ cfg.D.modos = [1, 3, 10];
 %   EXCITADO (nao ao T1).
 %   0.01 -> regime atual, bem resolvido
 %   0.10 -> intermediario, erros ja visiveis
+%   0.50 -> meio caminho entre o intermediario e o limite
 %   0.90 -> perto/acima do limite de estabilidade de varios esquemas.
 %           A divergencia aqui e ESPERADA e faz parte do resultado; os
 %           casos que explodem sao capturados por try/catch e reportados.
-cfg.D.hRatios = [0.01, 0.10, 0.90];
+cfg.D.hRatios = [0.01, 0.10, 0.5, 0.90];
 
 % nPer / ciclosPlot: ciclos calculados e mostrados SO no Estudo D.
-%   Bem menores que os globais porque aqui cada combinacao
-%   (modo x razao) e uma simulacao inteira, e as razoes altas divergem
-%   rapido - mais ciclos nao acrescentariam informacao. Aqui os ciclos
-%   sao contados em T do MODO EXCITADO, nao em T1.
+%   Menores que os globais porque aqui cada combinacao (modo x razao) e
+%   uma simulacao inteira, e as razoes altas divergem rapido - mais ciclos
+%   nao acrescentariam informacao.
+%   ATENCAO: os ciclos aqui sao contados em T1 (periodo do modo 1), o mesmo
+%   eixo t/T1 dos demais estudos - NAO em T do modo excitado. Para o modo
+%   10 (T ~250x menor que T1), 1 ciclo de T1 sao ~250 oscilacoes.
 %   Como o Estudo D roda sempre amortecido (cfg.D.xi = 0.01), a deteccao
-%   de decaimento da secao 2 vale aqui tambem, com estes valores no lugar
-%   dos globais.
-cfg.D.nPer = 3;
-cfg.D.ciclosPlot = 3;
+%   de decaimento da secao 2 vale aqui tambem (inclusive a regra da
+%   resposta inteira, cfg.ciclosDecaimentoRapido), com estes valores no
+%   lugar dos globais.
+cfg.D.nPer = 7;
+cfg.D.ciclosPlot = 2;
 
 % ratiosSimuladas: quais razoes de hRatios ganham simulacao no tempo.
 %   'extremos' -> so a menor e a maior (padrao, contem o custo; PE/AD em
 %                 forma fechada continuam sendo calculados para TODAS)
 %   'todas'    -> simula tambem as intermediarias
-cfg.D.ratiosSimuladas = 'extremos';
+cfg.D.ratiosSimuladas = 'todas';
 
 % --- ESTUDO E: amortecimento de Rayleigh alternativo -------------------
 % rayleigh: pares (a0, a1) impostos DIRETAMENTE, em vez de resolver os
@@ -298,14 +332,28 @@ cfg.F.item32_ordemRK = 4;
 % os dois, ou entender por que uma figura do Estudo A tem menos ciclos
 % que a equivalente do Estudo B.
 %
-%   nPerImpl  = 12      (aqui: 30 no caso amortecido)
-%   nPerRK    = 12      (igual)
-%   n_amostras = 10     (aposentado - virou X_ciclos_final_plot, e a
-%                        janela do Estudo A e sempre os ultimos 10 ciclos
-%                        da simulacao, sem deteccao de decaimento)
+%   nPerImpl  = 12      (aqui: cfg.nPerImpl / cfg.nPerImpl_sem_xi)
+%   nPerRK    = 12      (aqui: cfg.nPerRK / cfg.nPerRK_sem_xi)
+%   n_amostras = 10     (aqui: X_ciclos_final_plot - ciclos plotados nos
+%                        regimes 2/3, ver abaixo)
+%   tolDecaimento = 1e-2, ciclosDecaimentoRapido = 6   (iguais aos
+%                        defaults abaixo - duplicados no proprio arquivo
+%                        de A, nao lidos daqui)
 %   YCLIP     = 1.6     (igual)
 %   hRat      = 0.01    (igual)
-%   xi        = [0, 0.2]  -> Estudo B varre [0, 0.01, 0.2]
+%   xi        = [0, 0.2]  -> Estudo B varre cfg.B.xi_list
+%
+% JANELA DE PLOT: desde 21/09/2026 o Estudo A usa a MESMA regra de tres
+% regimes dos Estudos B-F (viga_janela_plot.m) - resposta inteira quando o
+% amortecimento e forte (xi=0.2 decai em ~3.7 ciclos, dentro do limiar de
+% 6), janela ancorada no decaimento quando e fraco, fim da simulacao sem
+% amortecimento. So o que e DESENHADO muda; nPerImpl/nPerRK e todo o resto
+% numerico de A continuam os de sempre.
+%
+% Nas figuras de RAIO ESPECTRAL o Estudo A ja segue o mesmo layout dos
+% demais: metodos diretos e Runge-Kutta juntos, uma figura por xi.
+%
+% CORES: todo mundo (Estudo A e B-F) usa a mesma paleta, viga_cores.m.
 %
 % (Estudo A tambem chama mdof_rk.m com os quatro argumentos de saida
 % [t,U,V,A], enquanto os Estudos B-F usam viga_rk_stream_tip.m, que nao

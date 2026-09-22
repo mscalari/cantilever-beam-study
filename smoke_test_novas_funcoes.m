@@ -41,6 +41,57 @@ stab = viga_espectro(mdl.w, mdl.damp.xi, '\xi=0.2', 'smoketest', pwd, ...
 assert(isfield(stab.rho.rk,'RK4') && numel(stab.rho.rk.RK4)==5, 'viga_espectro nao retornou o esperado');
 fprintf('OK viga_rho_beam/viga_espectro: rho(RK4,h=1e-6)=%.6f\n', r);
 
+% --- viga_espectro com plot: UMA figura com os 9 metodos (diretos + RK) ---
+spDir = fullfile(pwd,'smoketest_out');
+viga_espectro(mdl.w, mdl.damp.xi, '\xi=0.2', 'smoketest', spDir, ...
+    'hSweep', logspace(-7,-4,5));
+assert(exist(fullfile(spDir,'viga_rho_smoketest.eps'),'file')==2, 'figura combinada nao foi gerada (.eps)');
+assert(exist(fullfile(spDir,'viga_rho_smoketest.png'),'file')==2, 'copia .png nao foi gerada');
+figRho = findobj('Type','figure','Name','rho smoketest');
+assert(numel(figRho)==1, 'deveria haver UMA figura de raio espectral');
+assert(numel(findobj(figRho,'Type','line','LineStyle','-')) >= 5 && ...
+       numel(findobj(figRho,'Type','line','LineStyle','--')) >= 4, ...
+       'figura deveria ter 5 diretos (cheio) e 4 RK (tracejado)');
+close(figRho);
+fprintf('OK viga_espectro: 1 figura, 5 diretos + 4 RK\n');
+
+% --- viga_janela_plot: os tres regimes ---
+tJ = linspace(0, 50*T1, 4001);
+[~,~,iJ] = viga_janela_plot(tJ, exp(-2*pi*0.2*tJ/T1).*sin(2*pi*tJ/T1), T1, 2, 1e-2, true, 6);
+assert(iJ.completa && iJ.cicloIni == 0, 'xi=0.2 deveria plotar a resposta inteira');
+[~,~,iJ] = viga_janela_plot(tJ, exp(-2*pi*0.1*tJ/T1).*sin(2*pi*tJ/T1), T1, 2, 1e-2, true, 6);
+assert(~iJ.completa && iJ.decaiu, 'xi=0.1 deveria ser janela ancorada no decaimento');
+[~,~,iJ] = viga_janela_plot(tJ, exp(-2*pi*0.01*tJ/T1).*sin(2*pi*tJ/T1), T1, 2, 1e-2, true, 6);
+assert(~iJ.decaiu, 'xi=0.01 nao decai em 50 ciclos (ultimo ponto e um zero: nao pode dar falso decaimento)');
+fprintf('OK viga_janela_plot: resposta inteira / janela / sem decaimento\n');
+
+% --- viga_salva_figura: grava eps + png, confere, e AVISA quando falha ---
+fTmp = figure('Visible','off'); plot(1:3);
+dTmp = fullfile(pwd,'smoketest_out','salva');
+assert(viga_salva_figura(fTmp, dTmp, 'fig_teste'), 'viga_salva_figura devia retornar true');
+for ext = {'.eps','.png'}
+    dd = dir(fullfile(dTmp, ['fig_teste' ext{1}]));
+    assert(~isempty(dd) && dd.bytes > 0, ['faltou fig_teste' ext{1}]);
+end
+% regravar por cima (arquivo ja existente) tambem tem que dar certo e atualizar a data
+d0 = dir(fullfile(dTmp,'fig_teste.png')).datenum; pause(2.1);
+assert(viga_salva_figura(fTmp, dTmp, 'fig_teste'), 'regravar por cima falhou');
+assert(dir(fullfile(dTmp,'fig_teste.png')).datenum > d0, 'o .png antigo nao foi atualizado');
+% handle invalido -> warning + false (nao derruba a rodada)
+close(fTmp);
+lastwarn('');
+okInv = viga_salva_figura(fTmp, dTmp, 'fig_invalida');
+[~, wid] = lastwarn;
+assert(~okInv && strcmp(wid,'viga_salva_figura:falhou'), 'handle invalido deveria dar warning e false');
+fprintf('OK viga_salva_figura: eps+png, sobrescrita e aviso de falha\n');
+
+% --- viga_pasta_saida: independe do pwd ---
+pastaA = viga_pasta_saida('EstudoB');
+pwd0 = pwd; cd(tempdir); pastaB = viga_pasta_saida('EstudoB'); cd(pwd0);
+assert(strcmp(pastaA, pastaB), 'viga_pasta_saida depende do pwd');
+assert(strcmp(fileparts(fileparts(pastaA)), fileparts(which('viga_params'))), 'saida fora da pasta do codigo');
+fprintf('OK viga_pasta_saida: %s (igual de qualquer pwd)\n', pastaA);
+
 % --- viga_pead_tabela ---
 allNames = {'DC','Houbolt','Newmark','Wilson','Bathe','RK1','RK2','RK3','RK4'};
 allLabels = allNames;
@@ -57,7 +108,8 @@ cfgT.u0 = mdl.u0; cfgT.v0 = mdl.v0;
 cfgT.Mref = mdl.M; cfgT.wAll = mdl.w; cfgT.PhiAll = mdl.Phi; cfgT.xiAll = mdl.damp.xi;
 cfgT.tipExtract = @(U) U(mdl.info.tipW,:);
 cfgT.T1 = T1; cfgT.hImpl = 0.01*T1; cfgT.hRK = 0.9*viga_h_critico(mdl.K,mdl.M,mdl.C,'RK4');
-cfgT.nPerImpl = 2; cfgT.nPerRK = 2; cfgT.n_amostras = 2;
+cfgT.nPerImpl = 8; cfgT.nPerRK = 2; cfgT.X_ciclos_final_plot = 2;
+cfgT.tolDecaimento = 1e-2; cfgT.ciclosDecaimentoRapido = 6;
 cfgT.YCLIP = 1.6; cfgT.label = 'smoketest'; cfgT.xiLabel = 'smoke test';
 cfgT.outDir = fullfile(pwd,'smoketest_out'); cfgT.doZoom = true;
 cfgT.zoomCycles = [0.5 2];
@@ -65,6 +117,14 @@ cfgT.zoomCycles = [0.5 2];
 tresp = viga_resposta_tempo(cfgT);
 assert(isfield(tresp,'DC') && isfield(tresp,'RK4'), 'viga_resposta_tempo faltando metodos');
 assert(isfield(tresp.DC,'err'), 'campo err faltando');
+assert(tresp.config.janelaDireto.completa, 'xi=0.2 (decai em ~3.8 ciclos) deveria plotar a resposta inteira');
+assert(~tresp.config.janelaRK.completa, 'RK com 2 ciclos calculados nao chega a decair');
+assert(all(isfinite([tresp.Newmark.err tresp.RK4.err])), 'err invalido');
+for arq = {'viga_desloc_direto_smoketest','viga_desloc_rk_smoketest'}
+    for ext = {'.eps','.png'}
+        assert(exist(fullfile(cfgT.outDir,[arq{1} ext{1}]),'file')==2, ['faltou ' arq{1} ext{1}]);
+    end
+end
 fprintf('OK viga_resposta_tempo: err(Newmark)=%.4e, N_impl=%d, N_RK=%d\n', ...
     tresp.Newmark.err, tresp.config.N_impl, tresp.config.N_RK);
 

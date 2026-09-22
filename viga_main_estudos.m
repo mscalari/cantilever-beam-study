@@ -44,7 +44,7 @@ end
 
 fprintf('\n############################################################\n');
 fprintf('  TODOS OS ESTUDOS CONCLUIDOS em %.1f min.\n', toc(t0)/60);
-fprintf('  Resultados em %s\n', fullfile(pwd,'ImgViga'));
+fprintf('  Resultados (figuras .eps + .png, .mat) em %s\n', viga_pasta_saida());
 fprintf('############################################################\n');
 
 % ==========================================================================

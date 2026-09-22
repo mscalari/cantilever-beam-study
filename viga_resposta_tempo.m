@@ -15,9 +15,11 @@ function tresp = viga_resposta_tempo(cfg)
 %     damping the response dies out, and showing the last cycles of the
 %     SIMULATION would show a flat line; so the window is placed on the
 %     last cycles BEFORE the exact response drops below cfg.tolDecaimento
-%     of its own peak. Without damping there is nothing to detect and the
-%     window is simply the end of the simulation. See janela_plot below
-%     and section 2 of viga_config_estudos.m;
+%     of its own peak. If that happens within cfg.ciclosDecaimentoRapido
+%     cycles (strong damping) the WHOLE response, from t = 0, is shown
+%     instead. Without damping there is nothing to detect and the window
+%     is simply the end of the simulation. See viga_janela_plot.m and
+%     section 2 of viga_config_estudos.m;
 %   - a "zoom" inset on a late oscillation window (item 21: "dar um zoom
 %     lá na oscilação 20"), so that curves which look coincident at the
 %     start can be told apart after many periods;
@@ -66,6 +68,11 @@ function tresp = viga_resposta_tempo(cfg)
 %               needs to branch on it.
 %   .tolDecaimento  default 1e-3 - fraction of its own peak below which
 %               the exact response counts as "zero" for the window
+%   .ciclosDecaimentoRapido  default 6 - if the exact response decays
+%               below tolDecaimento within this many cycles of T1, the
+%               figure shows the WHOLE response (t = 0 to the decay
+%               instant) instead of a window of X_ciclos_final_plot cycles.
+%               0 turns this off.
 %   .verboseJanela  default true - prints one diagnostic line per family
 %               saying where the window landed and whether cycles were
 %               computed past the decay and thrown away
@@ -73,8 +80,9 @@ function tresp = viga_resposta_tempo(cfg)
 %   .dirLabel   default {'Central Differences','Houbolt','Newmark','Wilson-Theta','Bathe'}
 %   .rkOrders   default [1 2 3 4]
 %   .rkNames    default {'RK1','RK2','RK3','RK4'}
-%   .doZoom     default false. When true, adds a zoomed inset to BOTH
-%               figures on the window cfg.zoomCycles.
+%   .doZoom     default false. When true, adds a zoomed inset to the
+%               DIRECT-schemes figure on the window cfg.zoomCycles (the
+%               Runge-Kutta figure has no inset).
 %   .zoomCycles [c1 c2] in periods of T1 (default: the LAST 1.5 periods
 %               of the displayed window)
 %   .tMaxShow   caps the main axis at this many periods of T1 (default:
@@ -109,12 +117,12 @@ function tresp = viga_resposta_tempo(cfg)
     if ~isfield(cfg,'nMaxSalvar'),   cfg.nMaxSalvar   = 2e5;   end
     if ~isfield(cfg,'nMaxPlot'),     cfg.nMaxPlot     = 5000;  end
     if ~isfield(cfg,'tolDecaimento'),cfg.tolDecaimento = 1e-3; end
+    if ~isfield(cfg,'ciclosDecaimentoRapido'), cfg.ciclosDecaimentoRapido = 6; end
     if ~isfield(cfg,'verboseJanela'),cfg.verboseJanela = true; end
 
     if cfg.doPlots && ~exist(cfg.outDir,'dir'), mkdir(cfg.outDir); end
 
-    coresDir = [1.00 0.00 0.00; 0.00 0.20 1.00; 0.10 0.70 0.10; 0.60 0.00 0.60; 1.00 0.50 0.00];
-    coresRK  = [1.00 0.00 0.00; 0.00 0.20 1.00; 0.10 0.70 0.10; 0.60 0.00 0.60];
+    [coresDir, coresRK] = viga_cores();   % paleta unica - ver viga_cores.m
 
     T1 = cfg.T1;
     tresp = struct();
@@ -153,18 +161,27 @@ function tresp = viga_resposta_tempo(cfg)
         tresp.exact.t     = tRef;
         tresp.exact.u_tip = uexTip;
 
-        % Janela mostrada: ancorada no decaimento quando ha amortecimento,
-        % no fim da simulacao quando nao ha (ver janela_plot abaixo).
-        [tIni, tFim, infoJan] = janela_plot(tRef, uexTip, T1, ciclosPlot, ...
-            cfg.tolDecaimento, amortecido);
+        % Janela mostrada: resposta inteira se o amortecimento a mata em
+        % poucos ciclos; senao ancorada no decaimento; sem amortecimento,
+        % o fim da simulacao (ver viga_janela_plot.m).
+        [tIni, tFim, infoJan] = viga_janela_plot(tRef, uexTip, T1, ciclosPlot, ...
+            cfg.tolDecaimento, amortecido, cfg.ciclosDecaimentoRapido);
         tresp.config.janelaDireto = infoJan;
         if cfg.verboseJanela
-            print_janela('direct schemes', infoJan, T1, nPerImpl);
+            viga_print_janela('direct schemes', infoJan, T1, nPerImpl);
         end
 
         mask   = (tRef >= tIni - 0.5*cfg.hImpl) & (tRef <= tFim + 0.5*cfg.hImpl);
         uScale = max(abs(uexTip(mask)));
         if uScale == 0, uScale = 1; end
+
+        % O ERRO e medido na simulacao INTEIRA e normalizado pelo pico
+        % GLOBAL da resposta exata (mesma definicao do Estudo A). Nao pode
+        % usar uScale: com amortecimento a janela cai no rabo da resposta,
+        % onde o pico e uma fracao pequena do global, e o erro sairia
+        % inflado por esse fator.
+        uPeak = max(abs(uexTip));
+        if uPeak == 0, uPeak = 1; end
 
         % Decide whether DC belongs in the figure: skip only if it is
         % actually unstable at this hImpl (generalises the hard-coded
@@ -187,7 +204,7 @@ function tresp = viga_resposta_tempo(cfg)
             tresp.(cfg.dirNames{k}).h     = cfg.hImpl;
             tresp.(cfg.dirNames{k}).N     = nS;
             tresp.(cfg.dirNames{k}).u_tip = uTip;
-            tresp.(cfg.dirNames{k}).err   = max(abs(uTip - uexTip))/max(uScale,eps);
+            tresp.(cfg.dirNames{k}).err   = max(abs(uTip - uexTip))/max(uPeak,eps);
 
             if strcmpi(cfg.dirNames{k},'DC') && skipDC, continue; end
             if cfg.doPlots
@@ -216,7 +233,7 @@ function tresp = viga_resposta_tempo(cfg)
                 add_zoom_inset(gca, tRef, uexTip, uScale, cfg.dirNames, tresp, T1, coresDir, cfg, skipDC);
             end
 
-            print(fig, fullfile(cfg.outDir, sprintf('viga_desloc_direto_%s.eps',cfg.label)), '-depsc2','-painters');
+            viga_salva_figura(fig, cfg.outDir, sprintf('viga_desloc_direto_%s',cfg.label));
         end
 
         tresp.config.hImpl = cfg.hImpl;
@@ -238,11 +255,11 @@ function tresp = viga_resposta_tempo(cfg)
         UexV    = viga_solucao_exata(tVarre, cfg.Mref, cfg.wAll, cfg.PhiAll, cfg.xiAll, cfg.u0, cfg.v0);
         uexTipV = cfg.tipExtract(UexV);
 
-        [tIniRK, tFimRK, infoJanRK] = janela_plot(tVarre, uexTipV, T1, ciclosPlot, ...
-            cfg.tolDecaimento, amortecido);
+        [tIniRK, tFimRK, infoJanRK] = viga_janela_plot(tVarre, uexTipV, T1, ciclosPlot, ...
+            cfg.tolDecaimento, amortecido, cfg.ciclosDecaimentoRapido);
         tresp.config.janelaRK = infoJanRK;
         if cfg.verboseJanela
-            print_janela('Runge-Kutta', infoJanRK, T1, nPerRK);
+            viga_print_janela('Runge-Kutta', infoJanRK, T1, nPerRK);
         end
 
         tFine = linspace(tIniRK, tFimRK, cfg.nPontosExato);
@@ -287,17 +304,20 @@ function tresp = viga_resposta_tempo(cfg)
             tresp.(name).u_tip_max = uMax;
 
             % Erro relativo, na MESMA definicao usada pela familia direta
-            % (max|numerico - exato| normalizado), para que a tabela
-            % N x erro do item 31 tenha as duas familias na mesma escala.
-            % A solucao exata e avaliada nos instantes efetivamente
-            % salvos - sao os mesmos passos, so decimados.
+            % (max|numerico - exato| sobre a simulacao inteira, normalizado
+            % pelo pico GLOBAL da exata), para que a tabela N x erro do
+            % item 31 tenha as duas familias na mesma escala. A solucao
+            % exata e avaliada nos instantes efetivamente salvos - sao os
+            % mesmos passos, so decimados.
             if isempty(uexSalvo)
                 UexS = viga_solucao_exata(ts, cfg.Mref, cfg.wAll, cfg.PhiAll, ...
                     cfg.xiAll, cfg.u0, cfg.v0);
                 uexSalvo = cfg.tipExtract(UexS);
                 clear UexS
+                uPeakRK = max(abs([uexTipV, uexSalvo]));
+                if uPeakRK == 0, uPeakRK = 1; end
             end
-            tresp.(name).err = max(abs(us - uexSalvo))/max(uScaleRK, eps);
+            tresp.(name).err = max(abs(us - uexSalvo))/max(uPeakRK, eps);
 
             if cfg.doPlots
                 mask = (ts >= tIniRK - 0.5*cfg.hRK) & (ts <= tFimRK + 0.5*cfg.hRK);
@@ -318,7 +338,7 @@ function tresp = viga_resposta_tempo(cfg)
             xlim([tIniRK/T1 xHi]);  ylim([-cfg.YCLIP cfg.YCLIP]);
             set(fig,'Units','centimeters','Position',cfg.FIGPOS);
             set(gca,'FontName','Times New Roman','FontSize',cfg.FS);
-            print(fig, fullfile(cfg.outDir, sprintf('viga_desloc_rk_%s.eps',cfg.label)), '-depsc2','-painters');
+            viga_salva_figura(fig, cfg.outDir, sprintf('viga_desloc_rk_%s',cfg.label));
         end
 
         tresp.config.hRK = cfg.hRK;
@@ -338,102 +358,6 @@ function v = pick(s, campo, padrao)
         v = s.(campo);
     else
         v = padrao;
-    end
-end
-
-function [tIni, tFim, info] = janela_plot(t, uex, T1, nCiclos, tol, amortecido)
-%JANELA_PLOT  Decide a janela de tempo mostrada na figura.
-%
-% Com AMORTECIMENTO a resposta decai: passado certo instante ela e
-% numericamente zero e plotar os ultimos ciclos da simulacao mostraria
-% uma linha reta. Entao a janela e ancorada no DECAIMENTO - o ultimo
-% instante em que a resposta exata ainda esta acima de tol vezes o seu
-% proprio pico - e recua nCiclos ciclos de T1 a partir dali.
-%
-% SEM amortecimento nao ha decaimento a detectar, e a janela e
-% simplesmente os ultimos nCiclos ciclos da simulacao.
-%
-% A deteccao usa sempre a solucao EXATA, nunca a resposta de um metodo:
-% um esquema instavel diverge e arrastaria a janela para o lugar errado,
-% justamente no caso em que a figura mais precisa estar certa.
-%
-% Como a resposta oscila, |uex| cruza qualquer limiar varias vezes por
-% ciclo; o que interessa e o ULTIMO cruzamento, que e onde a envoltoria
-% do decaimento atravessa o limiar - dai o find(..., 'last').
-%
-% OUTPUT
-%   tIni, tFim : limites da janela [s]
-%   info       : struct com o diagnostico (usado no console e salvo no
-%                .mat), campos:
-%                  .amortecido   true/false
-%                  .tDecaimento  instante detectado [s] (NaN se nao houve)
-%                  .decaiu       true se a resposta caiu abaixo de tol
-%                                DENTRO da simulacao
-%                  .tIni, .tFim  a janela, em segundos
-%                  .cicloIni, .cicloFim  a janela, em ciclos de T1
-%                  .nCiclosPedidos  nCiclos
-%                  .truncada     true se a janela bateu em t=0 e ficou
-%                                menor que nCiclos ciclos
-%                  .tol          tolerancia usada
-
-    info = struct('amortecido',amortecido, 'tDecaimento',NaN, 'decaiu',false, ...
-                  'nCiclosPedidos',nCiclos, 'truncada',false, 'tol',tol);
-
-    uPeak = max(abs(uex));
-
-    if ~amortecido || uPeak == 0
-        % Sem amortecimento (ou resposta identicamente nula): janela no fim.
-        tFim = t(end);
-    else
-        idx = find(abs(uex) > tol*uPeak, 1, 'last');
-        if isempty(idx) || idx == numel(t)
-            % Nunca caiu abaixo da tolerancia dentro da simulacao: a
-            % resposta ainda tem sinal no fim, entao a janela vai ate la.
-            tFim = t(end);
-        else
-            tFim = t(idx);
-            info.tDecaimento = tFim;
-            info.decaiu = true;
-        end
-    end
-
-    tIni = tFim - nCiclos*T1;
-    if tIni < t(1)
-        tIni = t(1);
-        info.truncada = true;
-    end
-
-    info.tIni = tIni;      info.tFim = tFim;
-    info.cicloIni = tIni/T1;  info.cicloFim = tFim/T1;
-end
-
-function print_janela(familia, info, T1, nPerCalculado)
-% Diagnostico de uma linha no console: onde a janela caiu e, quando for o
-% caso, quantos ciclos foram calculados a toa depois do decaimento.
-    if info.decaiu
-        fprintf(['   [janela %s] resposta decaiu a %.1e do pico em t/T1 = %.2f; ' ...
-                 'plotando t/T1 em [%.2f, %.2f]\n'], ...
-                familia, info.tol, info.tDecaimento/T1, info.cicloIni, info.cicloFim);
-        sobra = nPerCalculado - info.cicloFim;
-        if sobra > 1
-            fprintf(['   [janela %s] AVISO: %.1f ciclos calculados depois do ' ...
-                     'decaimento foram descartados - da para reduzir nPer para ~%d\n'], ...
-                    familia, sobra, ceil(info.cicloFim) + 1);
-        end
-    else
-        if info.amortecido
-            fprintf(['   [janela %s] resposta NAO caiu abaixo de %.1e do pico dentro ' ...
-                     'dos %d ciclos calculados; plotando o fim: t/T1 em [%.2f, %.2f]\n'], ...
-                    familia, info.tol, nPerCalculado, info.cicloIni, info.cicloFim);
-        else
-            fprintf('   [janela %s] sem amortecimento; plotando t/T1 em [%.2f, %.2f]\n', ...
-                    familia, info.cicloIni, info.cicloFim);
-        end
-    end
-    if info.truncada
-        fprintf(['   [janela %s] AVISO: janela truncada em t=0 - foram pedidos %g ciclos ' ...
-                 'mas so ha %.2f antes do decaimento\n'], ...
-                familia, info.nCiclosPedidos, info.cicloFim);
     end
 end
 

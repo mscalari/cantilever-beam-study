@@ -9,9 +9,13 @@ are applied to the resulting MDOF finite element system.
 > larger battery of simulations (damping sweep, modal initial conditions,
 > modal reduction — see `PLANO_ORIENTADOR.md` for the full breakdown). This
 > file now documents both the **original study (Estudo A, unchanged)** and
-> the **new Estudos B–F**, added without modifying a single line of
+> the **new Estudos B–F**, added without touching the numerics of
 > `viga_main_simulacao.m` — Estudo A remains the exact reference already in
-> the paper.
+> the paper. (Two things about its FIGURES did change, 21/09/2026: the
+> spectral-radius figures put direct and Runge-Kutta schemes in one figure,
+> and the displayed time window now follows the same rule as Estudos B–F.
+> Every stored number — `res.time`, `res.timeRK`, `res.pead`, `res.stability`
+> — is unchanged; see "Resposta inteira..." below.)
 
 ## Onde mexer nos parâmetros
 
@@ -20,7 +24,7 @@ Dois arquivos, com responsabilidades separadas — e **só esses dois**:
 | Arquivo | Contém | Mexer aqui muda |
 |---|---|---|
 | `viga_params.m` | Material (E, ρ), geometria (L, b, h), malha (N), amortecimento de referência do Estudo A (ξ alvo, modos-âncora), CI de impulso (V0) | **o problema físico** — que viga está sendo resolvida |
-| `viga_config_estudos.m` | Passo de tempo (`hRat`, `fatorSegurancaRK`), duração (`nPerImpl`, `nPerRK`, `n_amostras`), figuras (`FS`, `FIGPOS`, `YCLIP`), amostragem (`nPontosExato`, `nMaxSalvar`, `nMaxPlot`), e os casos de cada estudo em `cfg.B` … `cfg.F` | **o experimento numérico** feito sobre ela |
+| `viga_config_estudos.m` | Passo de tempo (`hRat`, `fatorSegurancaRK`), duração e janela de plot (`nPerImpl`, `nPerRK`, `X_ciclos_final_plot`, `tolDecaimento`, `ciclosDecaimentoRapido`, e as versões `_sem_xi`), figuras (`FS`, `FIGPOS`, `YCLIP`), amostragem (`nPontosExato`, `nMaxSalvar`, `nMaxPlot`), e os casos de cada estudo em `cfg.B` … `cfg.F` | **o experimento numérico** feito sobre ela |
 
 Nenhum `viga_estudo_*.m` tem número de simulação chumbado: todos começam com
 `cfg = viga_config_estudos();` e leem tudo de lá. Cada campo está comentado no
@@ -32,9 +36,10 @@ Os campos de estudo (`p.xi_list`, `p.modal_modes`, `p.hD_ratios`,
 `cfg.E.rayleigh` e `cfg.F.reduction_modes`. A tabela de equivalência está no
 cabeçalho de `viga_params.m`.
 
-**Estudo A não lê daí, de propósito**: `viga_main_simulacao.m` segue intocado,
-com a configuração própria embutida, para continuar servindo de regressão. Os
-valores equivalentes estão listados na seção 6 de `viga_config_estudos.m`.
+**Estudo A não lê daí, de propósito**: `viga_main_simulacao.m` segue com a
+configuração própria embutida e sem mudança numérica, para continuar servindo
+de regressão. Os valores equivalentes estão listados na seção 6 de
+`viga_config_estudos.m`.
 
 Para baixar o custo num teste rápido, o parâmetro que domina o tempo é
 `cfg.nPerRK` (cada período custa ~2·10⁵ passos por método); `cfg.nPerImpl` é
@@ -56,13 +61,15 @@ viga_report_parametros.m  % markdown com todos os parametros, para uso em IA
 `viga_teste_janela.m` roda só a família de métodos diretos (segundos, não
 minutos) nos três regimes de amortecimento e mostra onde a janela de plot
 caiu em cada um. É o script para iterar em `cfg.X_ciclos_final_plot` sem
-pagar o custo de uma bateria com Runge-Kutta. Salva PNGs de conferência em
-`ImgViga/TesteJanela/`.
+pagar o custo de uma bateria com Runge-Kutta. Salva `.eps` + `.png` de
+conferência em `ImgViga/TesteJanela/`.
 
-Figures go to `ImgViga/` as `.eps`, same export settings as `ImgCOBEM/`. The
-new studies write into their own subfolders, `ImgViga/EstudoB/` …
-`ImgViga/EstudoF/`, each with its own `.mat` file, so nothing here collides
-with Estudo A's output.
+Figures go to `ImgViga/` as `.eps` (same export settings as `ImgCOBEM/`) **and
+as a `.png` copy at 300 dpi** next to each one. The new studies write into
+their own subfolders, `ImgViga/EstudoB/` … `ImgViga/EstudoF/`, each with its
+own `.mat` file, so nothing here collides with Estudo A's output. The output
+folder is always `<folder of the code>/ImgViga`, whatever MATLAB's current
+folder is (see "Figuras: .eps + .png" below).
 
 ## Estudos B–F (advisor's revision)
 
@@ -75,7 +82,8 @@ Estudo A's code:
 | `viga_ci_modal.m` | Displacement IC proportional to a single mode shape (Estudos C, D) |
 | `viga_reducao_modal.m` | Modal truncation to the first `m` modes — exact reduced `K,M,C`, own `w_max` (Estudo F) |
 | `viga_rho_beam.m` | Extracted, reusable version of the spectral-radius helper already used by Estudo A |
-| `viga_espectro.m` | Spectral-radius figures for an arbitrary `(w, xi)` case |
+| `viga_espectro.m` | Spectral-radius figure for an arbitrary `(w, xi)` case — one figure with all nine schemes (direct solid, Runge-Kutta dashed) |
+| `viga_janela_plot.m` | Decides which stretch of the response is plotted: whole response (strong damping), window anchored on the decay (weak damping) or the end of the run (no damping) |
 | `viga_pead_tabela.m` | PE/AD table for an arbitrary `(w, xi)` case and method/step list |
 | `viga_resposta_tempo.m` | Tip-displacement figures for an arbitrary case, with an optional **zoom inset** on a late oscillation (item 21) and an optional **time-axis cap** (item 22) |
 
@@ -126,8 +134,10 @@ executed are skipped with a warning rather than stopping the script.
 
 Only three, as requested:
 
-1. **Spectral radius** of every scheme on the FE beam — 4 figures
-   (`viga_rho_{rk,direto}_{xi0,xi02}.eps`), mirroring Figs. 2 and 3.
+1. **Spectral radius** of every scheme on the FE beam — 2 figures
+   (`viga_rho_{xi0,xi02}.eps`), one per damping case, each with the direct
+   and the Runge-Kutta schemes together (they used to be 4 figures,
+   `viga_rho_{rk,direto}_*.eps`, mirroring Figs. 2 and 3).
 2. **PE and AD** for every mode, printed for the first three and stored in
    full.
 3. **Tip displacement** against the exact response — 4 figures
@@ -487,6 +497,153 @@ Títulos, eixos e legendas de todas as figuras estão em inglês: `direto` →
 viraram `Case 1: full, h_1` etc. Os identificadores internos (nomes de
 campo no `.mat`, sufixos de arquivo) seguem sendo os mesmos onde já eram
 ASCII, para não quebrar `viga_tabelas.m`.
+
+## Regra de janela também no Estudo A, e paleta de cores única (21/09/2026)
+
+**Janela do Estudo A.** As figuras de deslocamento de `viga_main_simulacao.m`
+agora usam a mesma `viga_janela_plot.m` dos Estudos B–F, em vez da lógica
+antiga ("sempre os últimos 10 ciclos da simulação"). Efeito prático: no caso
+ξ=0,2 (que decai a 1% do pico em ~3,7 ciclos, dentro do limiar de 6), a
+figura passa a mostrar a resposta **inteira** — inclusive o transiente
+inicial (overshoot do Wilson-θ, por exemplo), que antes ficava fora da
+janela de "últimos 10 ciclos". O caso ξ=0 é undamped, cai no regime "fim da
+simulação" e o resultado visual não muda. O skip de Central Differences da
+figura também passou a ser decidido dinamicamente (compara `hImpl` contra o
+`h_cr` de DC, já calculado na Seção 2), em vez de fixo — sem efeito prático
+aqui, já que DC sempre esteve acima do próprio limite nesse `hImpl`, mas
+deixa A consistente com B–F. `tolDecaimento`/`ciclosDecaimentoRapido` ficam
+**duplicados** no cabeçalho de A (não lidos de `viga_config_estudos.m`, por
+quê: ver a nota "Estudo A não lê daí, de propósito" acima) — mantenha-os
+em sincronia manualmente se mudar os defaults lá. Nada além da FIGURA
+muda: `res.time`, `res.timeRK`, `res.pead`, `res.stability`, os `.err`, os
+passos críticos — todos idênticos a antes. Dois campos novos, só
+informativos: `res.window.<caso>.direto` / `.rk` (o diagnóstico da janela,
+mesmo formato usado em `tresp.config.janelaDireto` nos Estudos B–F).
+
+`viga_print_janela.m` (a linha de diagnóstico no console, "[janela ...]")
+foi extraída de dentro de `viga_resposta_tempo.m` para um arquivo próprio,
+para que o Estudo A também pudesse chamá-la — mesmo padrão já usado por
+`viga_rho_beam.m`.
+
+**Paleta de cores única.** Todo arquivo que desenha mais de um método (A e
+B–F, resposta no tempo e raio espectral) agora lê as cores de
+`viga_cores.m`, em vez de ter o array `coresDir`/`coresRK` repetido em cada
+arquivo:
+
+```matlab
+coresDir = [1.0 0.0 0.0;   % DC           - vermelho
+            0.0 0.2 1.0;   % Houbolt      - azul
+            0.1 0.7 0.1;   % Newmark      - verde
+            0.6 0.0 0.6;   % Wilson-Theta - roxo
+            1.0 0.5 0.0];  % Bathe        - laranja
+
+coresRK  = [0.6 0.0 0.0;   % RK1 - vermelho escuro (NÃO o 'r' puro - ver abaixo)
+            0.0 0.0 1.0;   % RK2 - azul   ('b')
+            0.0 1.0 0.0;   % RK3 - verde  ('g')
+            1.0 0.0 1.0];  % RK4 - magenta ('m')
+```
+
+As cores dos métodos diretos já eram exatamente essas em todo o projeto —
+nada mudou aí. As do Runge-Kutta viraram as primárias do MATLAB (`r`, `b`,
+`g`, `m`), **exceto RK1**: `[1,0,0]` é literalmente idêntico ao vermelho da
+DC, e nas figuras que mostram diretos e RK juntos (raio espectral) as duas
+curvas ficariam com a mesma cor — só essa foi trocada, para um vermelho
+mais escuro (grena, `[0.6,0,0]`). Os outros pares parecidos (RK2/Houbolt,
+RK3/Newmark, RK4/Wilson-Theta) não são literalmente iguais e continuam
+distinguíveis pelo estilo de linha (RK tracejado, direto contínuo) nas
+figuras onde aparecem juntos; nas figuras de resposta no tempo, direto e RK
+nunca aparecem na mesma figura, então não há conflito ali de qualquer jeito.
+Isso muda a aparência das figuras de raio-espectral combinado (RK deixa de
+ser preto/cinza/ciano/marrom e passa a ser grena/azul/verde/magenta) e das
+figuras de resposta-no-tempo do RK (RK2/RK3/RK4 ficam mais saturados que
+antes; RK1 vai de vermelho puro para grena).
+
+## Resposta inteira com amortecimento forte + raio espectral combinado (21/09/2026)
+
+**1. Resposta inteira quando o amortecimento é forte.** Se a resposta exata
+cai abaixo de `cfg.tolDecaimento` do próprio pico em até
+`cfg.ciclosDecaimentoRapido` ciclos de T₁ (padrão 6), a figura mostra a
+resposta **inteira**, de t = 0 até o instante do decaimento, em vez de uma
+janela de `X_ciclos_final_plot` ciclos. É assim que o transiente inicial —
+onde os métodos mais diferem entre si nesse caso (p. ex. o overshoot do
+Wilson-θ) — deixa de ficar fora da figura. Com decaimento mais lento vale a
+janela ancorada no decaimento de antes; sem amortecimento, o fim da
+simulação. `ciclosDecaimentoRapido = 0` desliga a regra.
+
+    n = −ln(tol) / (2π·ξ)      com tol = 1e-2:  ξ=0.2 → 3.7 ciclos (resposta inteira)
+                                                ξ=0.1 → 7.3 ciclos (janela)
+
+A lógica mora em `viga_janela_plot.m` e é usada por `viga_resposta_tempo.m`
+e pelo item 32 do Estudo F (que antes plotava os `nPerRK` ciclos inteiros,
+quase todos achatados com ξ=0.2). O Estudo A **não** usa essa regra (nem a
+config central): continua mostrando os últimos 10 ciclos.
+
+**2. Raio espectral: diretos e Runge-Kutta na mesma figura.** Todas as
+figuras de raio espectral (Estudo A e B–F) agora saem como **uma figura por
+caso** com os nove esquemas: diretos em linha cheia, Runge-Kutta tracejados.
+Nove curvas pedem nove cores, então aqui as cores do RK (preto, cinza,
+ciano, marrom) não repetem as dos diretos — nas figuras de deslocamento
+continuam as cores de antes. Arquivos: `viga_rho_<caso>.eps`
+(antes `viga_rho_{rk,direto}_<caso>.eps`). A estrutura
+`stab.rho.{direto,rk}.<método>` é a mesma. Só a figura de raio espectral
+foi combinada; as de deslocamento seguem separadas por família.
+
+### Correções feitas na revisão
+
+- **Falso "decaimento" na detecção da janela.** O código achava o último
+  ponto com `|u| > tol·pico`; se o último ponto da simulação caísse num
+  cruzamento por zero da oscilação, o "último ponto acima da tolerância" era
+  o penúltimo, e uma resposta ainda longe de decair (ξ=0.01 aos 50 ciclos
+  está a ~4% do pico) era dada como decaída, com mensagem errada no console.
+  Agora só conta como decaída a resposta que fica abaixo da tolerância por
+  pelo menos um período T₁ inteiro antes do fim. Com a regra da resposta
+  inteira isso passaria a importar: numa simulação curta (≤ 6 ciclos) uma
+  resposta que ainda não decaiu seria tratada como "decaiu rápido".
+- **Normalização do `err`.** `err` (coluna de erro da tabela N×erro) era
+  dividido pelo pico da resposta exata *dentro da janela plotada*. Com
+  amortecimento a janela cai no rabo da resposta, onde o pico é uma fração
+  pequena do global, então o erro saía inflado por esse fator. Agora é
+  normalizado pelo pico **global** da exata, a mesma definição do Estudo A.
+  Não afeta ξ=0. Os `.mat` gerados antes dessa correção têm `err` da
+  definição antiga para casos amortecidos.
+- **Comentários da configuração.** `viga_config_estudos.m` dizia que o
+  Estudo D conta ciclos em T do *modo excitado*; o código conta em T₁ (o
+  mesmo eixo `t/T₁` dos outros estudos). Foi o comentário que mudou, não o
+  comportamento.
+
+## Figuras: .eps + .png, pasta fixa e conferência (21/09/2026)
+
+**Sintoma investigado:** "o código não salvou as imagens". Não era o
+overwrite (`print` sobrescreve normalmente); o que havia de fato:
+
+- o destino era `fullfile(pwd,'ImgViga',...)`: com o `pwd` do MATLAB fora da
+  pasta do código, as figuras iam parar em outra pasta sem aviso e o
+  `ImgViga` "de sempre" ficava com os arquivos antigos;
+- um arquivo aberto em outro programa (visualizador de EPS/PNG, OneDrive
+  sincronizando) faz o `print` falhar — e a falha só aparecia como erro no
+  meio da rodada;
+- `viga_teste_janela.m` reimprimia **todas** as figuras abertas no mesmo
+  `preview_<caso>.png`; como não eram fechadas entre os casos, os três
+  previews saíam idênticos (a figura do primeiro caso);
+- sobras de nomes antigos (`viga_rho_{rk,direto}_*.eps`,
+  `..._teste_amortecido.eps`) ficavam misturadas com os arquivos novos.
+
+**O que mudou:**
+
+- `viga_salva_figura.m` é a única porta de saída de figuras. Grava
+  `<nome>.eps` (vetorial, como antes) **e** `<nome>.png` (300 dpi), e
+  confere que os dois existem, não estão vazios e foram gravados *agora*.
+  Se algo falhar (figura inválida, arquivo bloqueado, sem permissão), emite
+  `warning('viga_salva_figura:falhou', ...)` com o caminho absoluto e a
+  rodada continua — não passa em silêncio.
+- `viga_pasta_saida.m`: a saída é sempre `<pasta do viga_params.m>/ImgViga`,
+  independente do `pwd`. Cada script imprime no início
+  `Figuras (eps + png) e .mat em: <caminho absoluto>`.
+- `viga_lista_obsoletos.m`: no fim de cada estudo, lista (sem apagar) os
+  `.eps`/`.png` da pasta que **não** foram regravados nessa execução — em
+  geral sobras de um nome que mudou. Apagar essas sobras é decisão sua.
+- `viga_teste_janela.m`: um PNG por caso (`viga_desloc_direto_teste_<caso>.png`),
+  figuras fechadas entre os casos.
 
 ## Report de parâmetros para IA
 
