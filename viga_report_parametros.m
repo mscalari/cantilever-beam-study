@@ -24,7 +24,7 @@
 
 clc; clear;
 
-outDir = fullfile(pwd,'ImgViga');
+outDir = viga_pasta_saida();        % <pasta do codigo>/ImgViga, nao <pwd>/ImgViga
 tabDir = fullfile(outDir,'Tabelas');
 if ~exist(tabDir,'dir'), mkdir(tabDir); end
 mdFile = fullfile(tabDir,'PARAMETROS_ESTUDOS.md');
@@ -110,13 +110,21 @@ w_(fid, 'The response is integrated for `nPer*` cycles of T_1 but only a window 
 w_(fid, 'few cycles is plotted, because period (PE) and amplitude (AD) errors');
 w_(fid, 'accumulate and are only visible after several cycles.');
 w_(fid, '');
-w_(fid, 'Where that window sits depends on damping:');
+w_(fid, 'Where that window sits depends on damping (three regimes):');
 w_(fid, '');
-w_(fid, '- **Damped (xi != 0):** the response decays, so the code finds the last');
-w_(fid, '  instant at which the *exact* response still exceeds `tolDecaimento` times');
-w_(fid, '  its own peak, and plots the `X_ciclos_final_plot` cycles before it.');
+w_(fid, '- **Strongly damped (xi != 0, decays within `ciclosDecaimentoRapido` cycles):**');
+w_(fid, '  the response dies out quickly, so the **whole response** is plotted, from');
+w_(fid, '  t = 0 to the decay instant (the last instant the *exact* response still');
+w_(fid, '  exceeds `tolDecaimento` times its own peak).');
+w_(fid, '- **Weakly damped (xi != 0, decays slower):** the code finds the same decay');
+w_(fid, '  instant and plots the `X_ciclos_final_plot` cycles before it. If the response');
+w_(fid, '  has not decayed by the end of the simulation, the last cycles are plotted.');
 w_(fid, '- **Undamped (xi == 0):** nothing decays, so the window is simply the last');
 w_(fid, '  `X_ciclos_final_plot_sem_xi` cycles of the simulation.');
+w_(fid, '');
+w_(fid, 'A response only counts as decayed if it stays below the tolerance for at least');
+w_(fid, 'one full period T_1 before the end of the simulation. Decay is always measured');
+w_(fid, 'on the exact solution, never on a scheme''s own response.');
 w_(fid, '');
 w_(fid, '| Key | Value | Meaning |');
 w_(fid, '|---|---|---|');
@@ -127,6 +135,7 @@ w_(fid, '| `nPerImpl_sem_xi` | %g | Cycles computed, direct schemes, undamped ca
 w_(fid, '| `nPerRK_sem_xi` | %g | Cycles computed, RK schemes, undamped case |', cfg.nPerRK_sem_xi);
 w_(fid, '| `X_ciclos_final_plot_sem_xi` | %g | Cycles plotted, undamped case (back from the end) |', cfg.X_ciclos_final_plot_sem_xi);
 w_(fid, '| `tolDecaimento` | %.1e | Fraction of its own peak below which the response counts as zero |', cfg.tolDecaimento);
+w_(fid, '| `ciclosDecaimentoRapido` | %g | If the response decays within this many cycles, the whole response is plotted |', cfg.ciclosDecaimentoRapido);
 w_(fid, '');
 w_(fid, '### Figures and sampling');
 w_(fid, '');
@@ -136,7 +145,7 @@ w_(fid, '| `FS` | %g | Axis font size (pt) |', cfg.FS);
 w_(fid, '| `FIGPOS` | [%g %g %g %g] | Exported figure size (cm) |', cfg.FIGPOS);
 w_(fid, '| `YCLIP` | %g | y-axis clip of the normalised response |', cfg.YCLIP);
 w_(fid, '| `nModesReport` | %g | Modes printed in the console PE/AD tables |', cfg.nModesReport);
-w_(fid, '| `hSweep` | %d points, %.1e to %.1e s | Step sweep of the spectral-radius figures |', numel(cfg.hSweep), cfg.hSweep(1), cfg.hSweep(end));
+w_(fid, '| `hSweep` | %d points, %.1e to %.1e s | Step sweep of the spectral-radius figures (one figure per case, all nine schemes together: direct solid, Runge-Kutta dashed) |', numel(cfg.hSweep), cfg.hSweep(1), cfg.hSweep(end));
 w_(fid, '| `nPontosExato` | %g | Points on the exact reference curve |', cfg.nPontosExato);
 w_(fid, '| `nMaxSalvar` | %g | Max samples stored per RK method |', cfg.nMaxSalvar);
 w_(fid, '| `nMaxPlot` | %g | Max points drawn per curve |', cfg.nMaxPlot);
@@ -232,8 +241,8 @@ for ie = 1:numel(estudos)
             w_(fid, '');
             w_(fid, '| Key | Value | Meaning |');
             w_(fid, '|---|---|---|');
-            w_(fid, '| `D.nPer` | %g | Cycles computed (of the excited mode''s period) |', cfg.D.nPer);
-            w_(fid, '| `D.ciclosPlot` | %g | Cycles plotted |', cfg.D.ciclosPlot);
+            w_(fid, '| `D.nPer` | %g | Cycles computed (counted in T_1, the fundamental period - NOT in the excited mode''s period) |', cfg.D.nPer);
+            w_(fid, '| `D.ciclosPlot` | %g | Cycles plotted (in T_1) |', cfg.D.ciclosPlot);
             w_(fid, '| `D.ratiosSimuladas` | `%s` | Which h ratios get a time-domain run |', cfg.D.ratiosSimuladas);
             w_(fid, '');
             w_(fid, 'Closed-form PE/AD is computed for EVERY (mode, ratio) pair — that part is');

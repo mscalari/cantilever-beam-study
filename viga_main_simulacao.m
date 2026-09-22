@@ -12,7 +12,8 @@
 %
 % Three sets of results only:
 %
-%   1. Spectral radius of every scheme applied to the FE beam.
+%   1. Spectral radius of every scheme applied to the FE beam (direct and
+%      Runge-Kutta schemes together in ONE figure per damping case).
 %   2. Period elongation and amplitude decay, using the definitions of
 %      Section 3.3 applied to the decoupled modal equations.
 %   3. Tip displacement histories against the exact response of the
@@ -28,9 +29,13 @@
 % Run after viga_main_validacao.m.
 
 clc; clear; close all;
+tInicio = now;                       %#ok<TNOW1>
 
-outDir = fullfile(pwd,'ImgViga');
+% Saida SEMPRE em <pasta do codigo>/ImgViga, nao em <pwd>/ImgViga. Cada
+% figura sai em .eps E .png (viga_salva_figura.m).
+outDir = viga_pasta_saida();
 if ~exist(outDir,'dir'), mkdir(outDir); end
+fprintf(' Figuras (eps + png) e .mat em: %s\n\n', outDir);
 
 FS     = 18;
 FIGPOS = [0 0 20 14];
@@ -45,15 +50,37 @@ nPerImpl = 12;                % periods simulated, implicit schemes
 nPerRK   = 12;                 % periods simulated, Runge-Kutta schemes
 
 % --- Plotted window, in fundamental periods -------------------------
-% n_amostras sets how many of the LAST simulated periods appear in the
-% figures.  The full run is always carried out and fully stored; only
-% the displayed window is trimmed.  Example: nPerImpl = 100 with
-% n_amostras = 10 runs 100 periods and plots periods 90 to 100.
+% Same three-regime rule as the Estudos B-F (viga_janela_plot.m), so every
+% figure in the project - A included - is read the same way:
+%
+%   1) STRONG damping (exact response decays below tolDecaimento within
+%      ciclosDecaimentoRapido cycles of T1): the WHOLE response is shown,
+%      from t = 0 to the decay instant - this is xi = 0.2 here, which
+%      decays in ~3.7 cycles (< 6), so the figure now shows the initial
+%      transient (e.g. the Wilson-Theta overshoot) that the old "last 10
+%      cycles" window cut off.
+%   2) WEAK damping: n_amostras cycles are shown, anchored on the decay
+%      instant (last cycles of the simulation if it never decays).
+%   3) NO damping (xi = 0): nothing decays, so n_amostras is simply the
+%      last cycles of the run - unchanged from before.
+%
+% n_amostras plays the role of X_ciclos_final_plot in viga_config_estudos.m
+% for regimes 2-3. Example: nPerImpl = 100 with n_amostras = 10 runs 100
+% periods and, in regime 2/3, plots periods 90 to 100.
 % The normalisation of each figure uses the peak of the exact response
 % INSIDE the displayed window, so a strongly decayed tail stays centred
 % on the analytical curve instead of collapsing onto the axis.
 n_amostras = 10;
 n_amostras = max(n_amostras, eps);        % must be positive
+
+% tolDecaimento / ciclosDecaimentoRapido: same meaning and same DEFAULT
+% values as cfg.tolDecaimento/cfg.ciclosDecaimentoRapido in
+% viga_config_estudos.m (section 2), duplicated here - not read from that
+% file - so Estudo A stays self-contained, per the file's own header note
+% and section 6 of viga_config_estudos.m. Keep the two in sync by hand if
+% you change the defaults there.
+tolDecaimento = 1e-2;
+ciclosDecaimentoRapido = 6;
 
 % --- Saving ---------------------------------------------------------
 % Time histories are stored at the tip degree of freedom.  The RK runs
@@ -80,8 +107,7 @@ dirNames = {'DC','Houbolt','Newmark','Wilson','Bathe'};
 dirLabel = {'Central Differences','Houbolt','Newmark','Wilson-Theta','Bathe'};
 caseTags = {'xi0','xi02'};
 
-coresRK  = [1.00 0.00 0.00; 0.00 0.20 1.00; 0.10 0.70 0.10; 0.60 0.00 0.60];
-coresDir = [1.00 0.00 0.00; 0.00 0.20 1.00; 0.10 0.70 0.10; 0.60 0.00 0.60; 1.00 0.50 0.00];
+[coresDir, coresRK] = viga_cores();   % paleta unica - ver viga_cores.m
 
 res = struct();
 res.model = mdl;
@@ -113,34 +139,38 @@ for ic = 1:2
     end
     res.stability.xi.(tag) = xiL;
 
+    % ONE figure per damping case with all nine schemes: direct schemes as
+    % solid lines, Runge-Kutta as dashed lines (same coresDir/coresRK used
+    % everywhere else - viga_cores.m already keeps RK1 distinguishable
+    % from DC for exactly this combined-figure case).
+    fig = figure('Name',sprintf('rho %s',tag),'NumberTitle','off');
+    hold on;
+    leg = {};
     for fam = 1:2
         if fam == 1
-            names = rkNames;  cores = coresRK;  labels = rkNames;  ftag = 'rk';
+            names = dirNames; cores = coresDir; labels = dirLabel; estilo = '-';
         else
-            names = dirNames; cores = coresDir; labels = dirLabel; ftag = 'direto';
+            names = rkNames;  cores = coresRK;  labels = rkNames;  estilo = '--';
         end
-
-        fig = figure('Name',sprintf('rho %s %s',ftag,tag),'NumberTitle','off');
-        hold on;
         for k = 1:numel(names)
             r = arrayfun(@(hh) rhoBeam(names{k}, mdl.w, ximo, hh), hSweep);
             res.stability.rho.(tag).(names{k}) = r;
-            plot(hSweep/T1, r, '-', 'Color', cores(k,:), 'LineWidth', 1.5);
+            plot(hSweep/T1, r, estilo, 'Color', cores(k,:), 'LineWidth', 1.5);
+            leg{end+1} = labels{k}; %#ok<SAGROW>
         end
-        set(gca,'XScale','log','YScale','log');
-        yline(1,'k--','HandleVisibility','off');
-        grid on;
-        xlabel('$h/T_1$', 'Interpreter','latex');
-        ylabel('$\rho(\mathbf{\hat{A}})$', 'Interpreter','latex');
-        title(sprintf('Spectral radius, FE beam ($\\xi = %.1f$)', xiL), ...
-            'Interpreter','latex');
-        legend(labels, 'Location','northwest', 'FontSize', 12);
-        ylim([1e-2 1e2]);
-        set(fig,'Units','centimeters','Position',FIGPOS);
-        set(gca,'FontName','Times New Roman','FontSize',FS);
-        print(fig, fullfile(outDir, sprintf('viga_rho_%s_%s.eps',ftag,tag)), ...
-            '-depsc2','-painters');
     end
+    set(gca,'XScale','log','YScale','log');
+    yline(1,'k--','HandleVisibility','off');
+    grid on;
+    xlabel('$h/T_1$', 'Interpreter','latex');
+    ylabel('$\rho(\mathbf{\hat{A}})$', 'Interpreter','latex');
+    title(sprintf('Spectral radius, FE beam ($\\xi = %.1f$)', xiL), ...
+        'Interpreter','latex');
+    legend(leg, 'Location','northwest', 'FontSize', 11, 'NumColumns', 2);
+    ylim([1e-2 1e2]);
+    set(fig,'Units','centimeters','Position',FIGPOS);
+    set(gca,'FontName','Times New Roman','FontSize',FS);
+    viga_salva_figura(fig, outDir, sprintf('viga_rho_%s',tag));
 end
 
 %% ==================================================================
@@ -250,14 +280,12 @@ end
 %  ==================================================================
 nS = round(nPerImpl*T1/hImpl);
 
-% Displayed window: the last n_amostras periods of the run
-tIni = max(nPerImpl - n_amostras, 0)*T1;
-
 for ic = 1:2
     tag = caseTags{ic};
-    if ic == 1, Cm = Cz;  ximo = xiZero;      xiL = 0.0;
-    else,       Cm = C;   ximo = mdl.damp.xi; xiL = p.xi_target;
+    if ic == 1, Cm = Cz;  ximo = xiZero;      xiL = 0.0;         hcrDC = hcr0(end);
+    else,       Cm = C;   ximo = mdl.damp.xi; xiL = p.xi_target; hcrDC = hcrD(end);
     end
+    amortecido = xiL > 0;
 
     tRef = (0:nS)*hImpl;
     [Uex, Vex, Aex] = viga_solucao_exata(tRef, M, mdl.w, mdl.Phi, ximo, u0, v0);
@@ -270,8 +298,24 @@ for ic = 1:2
         res.time.(tag).exact.U = Uex;
     end
 
-    mask   = tRef >= tIni - 0.5*hImpl;
+    % Janela mostrada: as mesmas TRES regras dos Estudos B-F (resposta
+    % inteira / janela ancorada no decaimento / fim da simulacao, ver
+    % viga_janela_plot.m). So o que e DESENHADO muda - nS e a simulacao em
+    % si continuam exatamente os de sempre.
+    [tIni, tFim, infoJan] = viga_janela_plot(tRef, Uex(iTip,:), T1, ...
+        n_amostras, tolDecaimento, amortecido, ciclosDecaimentoRapido);
+    res.window.(tag).direto = infoJan;
+    viga_print_janela('direct schemes', infoJan, T1, nPerImpl);
+
+    mask   = (tRef >= tIni - 0.5*hImpl) & (tRef <= tFim + 0.5*hImpl);
     uScale = max(abs(Uex(iTip,mask)));
+    if uScale == 0, uScale = 1; end
+
+    % Central Differences fica fora da figura so quando de fato instavel
+    % neste passo (generaliza o skip fixo de antes, que so valia porque DC
+    % sempre excedia o proprio limite a h/T1 = 0.01 - mesma regra usada
+    % pelos Estudos B-F em viga_resposta_tempo.m).
+    skipDC = (hcrDC > 0) && (hImpl > hcrDC);
 
     fig = figure('Name',sprintf('Tip disp direct %s',tag),'NumberTitle','off');
     plot(tRef(mask)/T1, Uex(iTip,mask)/uScale, 'k--', 'LineWidth', 2); hold on;
@@ -291,10 +335,7 @@ for ic = 1:2
             res.time.(tag).(dirNames{k}).U = U;
         end
 
-        % Central Differences is far above its stability limit at this
-        % step: it is computed and stored, but kept out of the figure so
-        % that it does not flatten the comparison of the other schemes.
-        if k == 1, continue; end
+        if strcmpi(dirNames{k},'DC') && skipDC, continue; end
 
         plot(t(mask)/T1, U(iTip,mask)/uScale, '-', ...
             'Color', coresDir(k,:), 'LineWidth', 1.3);
@@ -307,11 +348,10 @@ for ic = 1:2
     title(sprintf('Tip displacement, implicit schemes ($h/T_1 = %.2f$, $\\xi = %.1f$)', ...
         hRat, xiL), 'Interpreter','latex');
     legend(leg, 'Location','northeast', 'FontSize', 12);
-    xlim([tIni/T1 nPerImpl]);  ylim([-YCLIP YCLIP]);
+    xlim([tIni/T1 tFim/T1]);  ylim([-YCLIP YCLIP]);
     set(fig,'Units','centimeters','Position',FIGPOS);
     set(gca,'FontName','Times New Roman','FontSize',FS);
-    print(fig, fullfile(outDir, sprintf('viga_desloc_direto_%s.eps',tag)), ...
-        '-depsc2','-painters');
+    viga_salva_figura(fig, outDir, sprintf('viga_desloc_direto_%s',tag));
 end
 
 %% ==================================================================
@@ -325,9 +365,6 @@ end
 % the central finding of Section 4.1.
 nRK = round(nPerRK*T1/hRK);
 
-% Displayed window: the last n_amostras periods of the run
-tIniRK = max(nPerRK - n_amostras, 0)*T1;
-
 fprintf(' Runge-Kutta simulations: h = %.4e s (%.3e T_1), %d steps\n', ...
     hRK, hRK/T1, nRK);
 fprintf('   this is the longest part of the run; please wait.\n\n');
@@ -337,10 +374,24 @@ for ic = 1:2
     if ic == 1, Cm = Cz;  ximo = xiZero;      xiL = 0.0;
     else,       Cm = C;   ximo = mdl.damp.xi; xiL = p.xi_target;
     end
+    amortecido = xiL > 0;
 
-    tFine  = linspace(tIniRK, nPerRK*T1, 4000);
+    % Janela mostrada: mesma regra de tres regimes usada acima para os
+    % metodos diretos (viga_janela_plot.m). A deteccao usa uma varredura
+    % grosseira sobre a simulacao INTEIRA (barata, forma fechada); so
+    % DEPOIS a grade fina de 4000 pontos e montada sobre a janela achada -
+    % mesmo padrao de viga_resposta_tempo.m.
+    tVarre = linspace(0, nPerRK*T1, 2000);
+    UexV   = viga_solucao_exata(tVarre, M, mdl.w, mdl.Phi, ximo, u0, v0);
+    [tIniRK, tFimRK, infoJanRK] = viga_janela_plot(tVarre, UexV(iTip,:), T1, ...
+        n_amostras, tolDecaimento, amortecido, ciclosDecaimentoRapido);
+    res.window.(tag).rk = infoJanRK;
+    viga_print_janela('Runge-Kutta', infoJanRK, T1, nPerRK);
+
+    tFine  = linspace(tIniRK, tFimRK, 4000);
     UexF   = viga_solucao_exata(tFine, M, mdl.w, mdl.Phi, ximo, u0, v0);
     uScale = max(abs(UexF(iTip,:)));
+    if uScale == 0, uScale = 1; end
 
     res.timeRK.(tag).exact.t     = tFine;
     res.timeRK.(tag).exact.u_tip = UexF(iTip,:);
@@ -365,7 +416,7 @@ for ic = 1:2
         res.timeRK.(tag).(rkNames{k}).decimated  = numel(ts) < numel(t);
         res.timeRK.(tag).(rkNames{k}).u_tip_max  = max(abs(U(iTip,:)));
 
-        mask    = t >= tIniRK - 0.5*hRK;
+        mask    = (t >= tIniRK - 0.5*hRK) & (t <= tFimRK + 0.5*hRK);
         [tp,yp] = downsample_plot(t(mask), U(iTip,mask)/uScale);
         plot(tp/T1, yp, '-', 'Color', coresRK(k,:), 'LineWidth', 1.3);
         leg{end+1} = rkNames{k}; %#ok<SAGROW>
@@ -377,11 +428,10 @@ for ic = 1:2
     title(sprintf('Tip displacement, Runge-Kutta ($h = %.2e$ s, $\\xi = %.1f$)', ...
         hRK, xiL), 'Interpreter','latex');
     legend(leg, 'Location','northeast', 'FontSize', 12);
-    xlim([tIniRK/T1 nPerRK]);  ylim([-YCLIP YCLIP]);
+    xlim([tIniRK/T1 tFimRK/T1]);  ylim([-YCLIP YCLIP]);
     set(fig,'Units','centimeters','Position',FIGPOS);
     set(gca,'FontName','Times New Roman','FontSize',FS);
-    print(fig, fullfile(outDir, sprintf('viga_desloc_rk_%s.eps',tag)), ...
-        '-depsc2','-painters');
+    viga_salva_figura(fig, outDir, sprintf('viga_desloc_rk_%s',tag));
 end
 
 %% ==================================================================
@@ -403,6 +453,9 @@ end
 %   res.time.<case>.<method>  implicit runs: t, h, u_tip, v_tip, a_tip
 %   res.time.<case>.exact     exact reference on the same time grid
 %   res.timeRK.<case>.<method>  Runge-Kutta runs (decimated histories)
+%   res.window.<case>.direto/.rk  window diagnostic from viga_janela_plot.m
+%                             (which regime was used, decay instant, etc.)
+%                             - purely informative, nothing else reads it
 %
 % <case> is 'xi0' or 'xi02'; <method> is DC, Houbolt, Newmark, Wilson,
 % Bathe, RK1, RK2, RK3 or RK4.
@@ -411,6 +464,8 @@ res.config = struct( ...
     'nPerImpl',     nPerImpl, ...
     'nPerRK',       nPerRK, ...
     'n_amostras',   n_amostras, ...
+    'tolDecaimento', tolDecaimento, ...
+    'ciclosDecaimentoRapido', ciclosDecaimentoRapido, ...
     'hRat',         hRat, ...
     'hImpl',        hImpl, ...
     'hRK',          hRK, ...
@@ -430,6 +485,7 @@ d = dir(matFile);
 fprintf(' Figures saved to %s\n', outDir);
 fprintf(' All results saved to %s (%.1f MB)\n', matFile, d.bytes/1e6);
 fprintf('   load it with:  S = load(''%s'');  res = S.res;\n', 'viga_resultados.mat');
+viga_lista_obsoletos({outDir}, tInicio);
 fprintf('=====================================================\n');
 
 %% ==================================================================

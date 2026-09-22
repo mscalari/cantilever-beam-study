@@ -37,9 +37,13 @@
 % ImgViga/EstudoF/.
 
 clc; clear; close all;
+tInicio = now;                       %#ok<TNOW1>
 
-outDir = fullfile(pwd,'ImgViga','EstudoF');
+% Saida SEMPRE em <pasta do codigo>/ImgViga/EstudoF (nao em <pwd>); cada
+% figura sai em .eps E .png (viga_salva_figura.m).
+outDir = viga_pasta_saida('EstudoF');
 if ~exist(outDir,'dir'), mkdir(outDir); end
+fprintf(' Figuras (eps + png) e .mat em: %s\n', outDir);
 
 % Toda a configuracao numerica vem de viga_config_estudos.m (secoes 1-4 e
 % cfg.F) - nao ha numero de simulacao chumbado neste arquivo.
@@ -186,10 +190,24 @@ casos = struct('nome',{'Case1_full_h1','Case2_red4_h1','Case3_red4_h3'}, ...
 tRefFine = linspace(0, nPerP2*T1, cfg.nPontosExato);
 UexFine  = viga_solucao_exata(tRefFine, M, mdl.w, mdl.Phi, mdl.damp.xi, mdl.u0, mdl.v0);
 uexTipFine = UexFine(iTip,:);
-uScaleP2 = max(abs(uexTipFine));
+uPeakP2  = max(abs(uexTipFine));    % pico global: normaliza o ERRO
+
+% Mesma regra de janela dos demais estudos (viga_janela_plot.m): com xi =
+% 0.2 a resposta morre em poucos ciclos, entao mostra-se a resposta
+% inteira em vez dos nPerP2 ciclos, quase todos achatados. So o que e
+% DESENHADO muda; a simulacao e o erro seguem cobrindo os nPerP2 ciclos.
+[tIniP2, tFimP2, infoP2] = viga_janela_plot(tRefFine, uexTipFine, T1, ...
+    cfg.X_ciclos_final_plot, cfg.tolDecaimento, true, cfg.ciclosDecaimentoRapido);
+maskP2 = (tRefFine >= tIniP2) & (tRefFine <= tFimP2);
+% Figura normalizada pelo pico DENTRO da janela (como nos outros estudos).
+uScaleP2 = max(abs(uexTipFine(maskP2)));
+txtJanP2 = '';
+if infoP2.completa, txtJanP2 = ' (resposta inteira)'; end
+fprintf(' Item 32: janela plotada t/T1 em [%.2f, %.2f]%s\n', ...
+    infoP2.cicloIni, infoP2.cicloFim, txtJanP2);
 
 fig = figure('Name','Estudo F - item 32','NumberTitle','off'); hold on;
-plot(tRefFine/T1, uexTipFine/uScaleP2, 'k--', 'LineWidth', 2);
+plot(tRefFine(maskP2)/T1, uexTipFine(maskP2)/uScaleP2, 'k--', 'LineWidth', 2);
 legP2 = {'Exact (full)'};
 coresP2 = [0.85 0.1 0.1; 0.1 0.1 0.85; 0.1 0.6 0.1];
 
@@ -208,12 +226,12 @@ for ic = 1:numel(casos)
             nSteps, cfg.F.item32_ordemRK, cs.tipExtract, saveIdx);
         % Interpolate onto the common fine grid for a fair error metric.
         uInterp = interp1(t, uTip, tRefFine, 'linear', 'extrap');
-        errRel  = max(abs(uInterp - uexTipFine))/uScaleP2;
+        errRel  = max(abs(uInterp - uexTipFine))/uPeakP2;
         fprintf('   %-16s h=%.3e s  N=%d passos  erro relativo max = %.4e\n', ...
             cs.nome, cs.h, nSteps, errRel);
         res.item32.(cs.nome) = struct('h',cs.h,'N',nSteps,'err',errRel);
 
-        plot(tRefFine/T1, uInterp/uScaleP2, '-', 'Color', coresP2(ic,:), 'LineWidth', 1.3);
+        plot(tRefFine(maskP2)/T1, uInterp(maskP2)/uScaleP2, '-', 'Color', coresP2(ic,:), 'LineWidth', 1.3);
         legP2{end+1} = cs.label; %#ok<AGROW>
     catch ME
         warning('Item 32, %s: falhou (%s).', cs.nome, ME.message);
@@ -227,10 +245,10 @@ ylabel('$w_{tip}/w_{ref}$', 'Interpreter','latex');
 title(sprintf('%s: full vs. reduced model (same h vs. larger h)', rkP2), ...
     'Interpreter','tex');
 legend(legP2, 'Location','northeast', 'FontSize', 12);
-ylim([-YCLIP YCLIP]);
+xlim([tIniP2 tFimP2]/T1);  ylim([-YCLIP YCLIP]);
 set(fig,'Units','centimeters','Position',FIGPOS);
 set(gca,'FontName','Times New Roman','FontSize',FS);
-print(fig, fullfile(outDir,'viga_item32_completo_vs_reduzido.eps'), '-depsc2','-painters');
+viga_salva_figura(fig, outDir, 'viga_item32_completo_vs_reduzido');
 
 res.config = struct('hRat',hRat,'reduction_modes',reductionModes, ...
     'xi',p.xi_target,'runDate',datestr(now));
@@ -238,3 +256,4 @@ res.cfg = cfg;   % configuracao completa usada nesta corrida (rastreabilidade)
 
 save(fullfile(outDir,'estudoF_resultados.mat'), 'res', '-v7.3');
 fprintf('\nEstudo F concluido. Resultados e figuras em %s\n', outDir);
+viga_lista_obsoletos({outDir}, tInicio);

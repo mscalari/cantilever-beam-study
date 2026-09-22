@@ -16,11 +16,12 @@
 % O QUE ELE FAZ
 % Monta tres casos com a mesma viga, um para cada ramo da logica:
 %   1. MUITO AMORTECIDO (xi = p.xi_target, tipicamente 0.2) -> a resposta
-%      decai dentro da simulacao, entao a DETECCAO DISPARA: o codigo acha
-%      onde ela morre e plota os X_ciclos_final_plot ciclos anteriores.
+%      decai em poucos ciclos (<= cfg.ciclosDecaimentoRapido), entao a
+%      figura mostra a resposta INTEIRA, de t = 0 ate o decaimento.
 %   2. POUCO AMORTECIDO (xi = cfg.C.xi, tipicamente 0.01)   -> decai
-%      devagar demais para morrer dentro dos ciclos calculados; mostra o
-%      comportamento de fallback (plota o fim) e o aviso correspondente.
+%      devagar. Se morre dentro dos ciclos calculados, plota os
+%      X_ciclos_final_plot ciclos anteriores ao decaimento; se nao morre,
+%      cai no fallback (plota o fim) e o console avisa.
 %   3. NAO AMORTECIDO   (xi = 0)                            -> nao ha o
 %      que detectar; plota os X_ciclos_final_plot_sem_xi ciclos finais.
 % Para cada um, imprime a janela detectada e gera a figura.
@@ -31,8 +32,9 @@
 %
 %       n = -ln(tolDecaimento) / (2*pi*xi)
 %
-% Com tol = 1e-3: xi = 0.2 morre em ~5.5 ciclos, xi = 0.05 em ~22, e
-% xi = 0.01 so em ~110. O script imprime essa estimativa para cada caso,
+% Com tol = 1e-2: xi = 0.2 morre em ~3.7 ciclos, xi = 0.05 em ~15, e
+% xi = 0.01 so em ~73. (Com tol = 1e-3: ~5.5, ~22 e ~110.) O script
+% imprime essa estimativa para cada caso, e diz em qual regime ele cai,
 % para voce ver se nPerImpl esta grande o bastante para a deteccao valer
 % - se nao estiver, o codigo avisa e plota o fim da simulacao.
 %
@@ -51,7 +53,8 @@
 
 clc; clear; close all;
 
-outDir = fullfile(pwd,'ImgViga','TesteJanela');
+tInicio = now;                       %#ok<TNOW1>
+outDir = viga_pasta_saida('TesteJanela');   % <pasta do codigo>/ImgViga/TesteJanela
 if ~exist(outDir,'dir'), mkdir(outDir); end
 
 cfg = viga_config_estudos();
@@ -71,7 +74,9 @@ fprintf('   AMORTECIDO      : calcula %d ciclos, plota os ultimos %g antes do de
     cfg.nPerImpl, cfg.X_ciclos_final_plot);
 fprintf('   NAO AMORTECIDO  : calcula %d ciclos, plota os ultimos %g\n', ...
     cfg.nPerImpl_sem_xi, cfg.X_ciclos_final_plot_sem_xi);
-fprintf('   tolDecaimento   : %.1e do pico\n\n', cfg.tolDecaimento);
+fprintf('   tolDecaimento   : %.1e do pico\n', cfg.tolDecaimento);
+fprintf('   ciclosDecaimentoRapido : %g (decaindo em ate isso, plota a resposta inteira)\n\n', ...
+    cfg.ciclosDecaimentoRapido);
 
 hImpl = cfg.hRat*T1;
 
@@ -97,6 +102,10 @@ for ic = 1:numel(casos)
         nCalc  = cfg.nPerImpl;
         fprintf('   estimativa: decai a %.0e do pico em ~%.1f ciclos (serao calculados %d)\n', ...
             cfg.tolDecaimento, nMorte, nCalc);
+        if nMorte <= cfg.ciclosDecaimentoRapido
+            fprintf('   -> decaimento RAPIDO (<= %g ciclos): sera plotada a resposta inteira\n', ...
+                cfg.ciclosDecaimentoRapido);
+        end
         if nMorte > nCalc
             fprintf(['   -> nPerImpl e PEQUENO demais para a deteccao disparar neste xi; ' ...
                      'seriam precisos ~%d ciclos\n'], ceil(nMorte)+1);
@@ -129,22 +138,24 @@ for ic = 1:numel(casos)
     tresp = viga_resposta_tempo(cfgT);
     res.(cs.tag) = tresp;
 
-    % Copia em PNG so para conferencia rapida na tela: as figuras do
-    % paper continuam saindo em .eps (vetorial) pelos estudos. Aqui a
-    % figura ainda esta aberta, entao basta reimprimi-la.
-    figs = findobj('Type','figure');
-    for kf = 1:numel(figs)
-        print(figs(kf), fullfile(outDir, sprintf('preview_%s.png', cs.tag)), ...
-            '-dpng','-r120');
-    end
+    % viga_resposta_tempo ja gravou viga_desloc_direto_teste_<caso>.eps e
+    % .png (300 dpi) em outDir - o PNG e a copia para conferir na tela.
+    % (Antes havia aqui um laco que reimprimia TODAS as figuras abertas
+    % (findobj) num unico preview_<caso>.png; como as figuras nao eram
+    % fechadas entre os casos, os tres previews saiam identicos, com a
+    % figura do primeiro caso.) Fecha tudo para nada vazar para o proximo.
+    close all;
 
     j = tresp.config.janelaDireto;
-    fprintf('   -> janela final: t/T1 em [%.2f, %.2f]  (%.2f ciclos)\n\n', ...
-        j.cicloIni, j.cicloFim, j.cicloFim - j.cicloIni);
+    txtRegime = '';
+    if j.completa, txtRegime = ', resposta inteira'; end
+    fprintf('   -> janela final: t/T1 em [%.2f, %.2f]  (%.2f ciclos%s)\n\n', ...
+        j.cicloIni, j.cicloFim, j.cicloFim - j.cicloIni, txtRegime);
 end
 
 fprintf('#############################################################\n');
-fprintf('  Figuras em %s\n', outDir);
+fprintf('  Figuras (eps + png) em %s\n', outDir);
+viga_lista_obsoletos({outDir}, tInicio);
 fprintf('  Se as janelas estiverem boas, rode viga_main_estudos.m.\n');
 fprintf('#############################################################\n');
 

@@ -23,9 +23,13 @@
 % ImgViga/EstudoE/.
 
 clc; clear; close all;
+tInicio = now;                       %#ok<TNOW1>
 
-outDir = fullfile(pwd,'ImgViga','EstudoE');
+% Saida SEMPRE em <pasta do codigo>/ImgViga/EstudoE (nao em <pwd>); cada
+% figura sai em .eps E .png (viga_salva_figura.m).
+outDir = viga_pasta_saida('EstudoE');
 if ~exist(outDir,'dir'), mkdir(outDir); end
+fprintf(' Figuras (eps + png) e .mat em: %s\n', outDir);
 
 % Toda a configuracao numerica vem de viga_config_estudos.m (secoes 1-4 e
 % cfg.E) - nao ha numero de simulacao chumbado neste arquivo.
@@ -114,3 +118,4 @@ res.cfg = cfg;   % configuracao completa usada nesta corrida (rastreabilidade)
 
 save(fullfile(outDir,'estudoE_resultados.mat'), 'res', '-v7.3');
 fprintf('\nEstudo E concluido. Resultados e figuras em %s\n', outDir);
+viga_lista_obsoletos({outDir}, tInicio);
