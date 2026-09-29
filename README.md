@@ -140,8 +140,12 @@ Only three, as requested:
    `viga_rho_{rk,direto}_*.eps`, mirroring Figs. 2 and 3).
 2. **PE and AD** for every mode, printed for the first three and stored in
    full.
-3. **Tip displacement** against the exact response — 4 figures
-   (`viga_desloc_{direto,rk}_{xi0,xi02}.eps`).
+3. **Tip displacement** against the exact response — 8 figures: the 4
+   usual windows (`viga_desloc_{direto,rk}_{xi0,xi02}.eps`), each now
+   carrying a **zoom inset** on one period, plus 4 companion figures where
+   that same period *is* the whole plot
+   (`viga_desloc_{direto,rk}_{xi0,xi02}_zoom.eps`). See "Zoom de um
+   período" below.
 
 All displacement axes are clipped at `±1.6` of the analytical peak, so an
 unstable curve leaves the frame instead of flattening everything else.
@@ -497,6 +501,45 @@ Títulos, eixos e legendas de todas as figuras estão em inglês: `direto` →
 viraram `Case 1: full, h_1` etc. Os identificadores internos (nomes de
 campo no `.mat`, sufixos de arquivo) seguem sendo os mesmos onde já eram
 ASCII, para não quebrar `viga_tabelas.m`.
+
+## Zoom de um período nas figuras do Estudo A (29/09/2026)
+
+A janela normal mostra vários períodos de uma vez, e dentro dela as curvas
+dos métodos ficam comprimidas demais para se distinguirem. Agora cada uma
+das 4 figuras de deslocamento do Estudo A tem um **zoom em um período só**:
+
+| Caso | Período do zoom | Por quê |
+|---|---|---|
+| ξ = 0 | **último** (período 12) | sem amortecimento nada decai; é depois de muitos ciclos que o desvio de fase acumulado (PE) fica visível |
+| ξ = 0,2 | **primeiro** | a resposta morre em ~3,8 ciclos, então é no transiente inicial que os métodos se separam (overshoot do Wilson-θ, por exemplo) |
+
+Esse período aparece de **duas formas**, em arquivos separados:
+
+1. como **inset** ampliado dentro da figura de janela normal —
+   `viga_desloc_{direto,rk}_{xi0,xi02}.eps/.png`, os de sempre;
+2. como **figura própria**, em que a janela principal é só esse período —
+   `viga_desloc_{direto,rk}_{xi0,xi02}_zoom.eps/.png`, novos.
+
+Detalhes que importam para a leitura:
+
+- **A normalização do zoom é local ao período**, não a da figura grande.
+  Com ξ=0,2 o primeiro período tem amplitude várias vezes maior que a média
+  da janela inteira; reaproveitar o `uScale` grande deixaria o zoom
+  achatado — exatamente o contrário do que se quer.
+- **O corte `YCLIP` vale no inset também.** Sem ele, RK1/RK2 no caso sem
+  amortecimento (já com valores enormes no período 12) fariam o autoscale
+  achatar todas as outras curvas contra o eixo.
+- **Nada disso muda a simulação**: as duas formas recortam e renormalizam
+  séries já calculadas, sem rodar integrador de novo. `res.time`/
+  `res.timeRK` seguem idênticos.
+- `nPerImpl` e `nPerRK` do Estudo A voltaram a **12/12** (estavam em 50/10),
+  porque é o período 12 que o zoom do caso ξ=0 mostra.
+
+Implementação em `viga_main_simulacao.m`: duas funções locais novas,
+`add_zoom_periodo` (o inset, mesma posição/estilo do inset do Estudo B em
+`viga_resposta_tempo.m`, mas servindo diretos **e** RK — lá só a figura
+direta tem inset) e `figura_periodo` (a figura própria). Nenhum arquivo
+compartilhado e nenhum Estudo B–F foi tocado.
 
 ## Regra de janela também no Estudo A, e paleta de cores única (21/09/2026)
 

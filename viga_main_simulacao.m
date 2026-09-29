@@ -70,7 +70,7 @@ nPerRK   = 12;                 % periods simulated, Runge-Kutta schemes
 % The normalisation of each figure uses the peak of the exact response
 % INSIDE the displayed window, so a strongly decayed tail stays centred
 % on the analytical curve instead of collapsing onto the axis.
-n_amostras = 10;
+n_amostras = 3;
 n_amostras = max(n_amostras, eps);        % must be positive
 
 % tolDecaimento / ciclosDecaimentoRapido: same meaning and same DEFAULT
@@ -81,6 +81,29 @@ n_amostras = max(n_amostras, eps);        % must be positive
 % you change the defaults there.
 tolDecaimento = 1e-2;
 ciclosDecaimentoRapido = 6;
+
+% --- Zoom de UM periodo, nas quatro figuras de deslocamento ----------
+% A janela acima mostra varios periodos de uma vez, e dentro dela as
+% curvas dos metodos ficam comprimidas demais para se distinguirem. Entao
+% cada figura de deslocamento ganha, ALEM da janela normal, um zoom em UM
+% periodo so:
+%
+%   xi = 0    -> o ULTIMO periodo simulado (nPerImpl para os diretos,
+%                nPerRK para os RK): e onde o desvio de fase acumulado
+%                depois de varios ciclos esta maior.
+%   xi = 0.2  -> o PRIMEIRO periodo: com esse amortecimento a resposta
+%                morre em ~3.8 ciclos, entao e no transiente inicial que
+%                os metodos se diferenciam (overshoot do Wilson-Theta,
+%                por exemplo).
+%
+% Esse periodo aparece de DUAS formas, em arquivos separados:
+%   1. como INSET ampliado dentro da figura de janela normal
+%      (viga_desloc_{direto,rk}_<caso>.eps/.png, os de sempre);
+%   2. como figura propria, em que a janela principal e SO esse periodo
+%      (viga_desloc_{direto,rk}_<caso>_zoom.eps/.png, novos).
+%
+% Nada disso muda a simulacao: as duas formas reaproveitam as mesmas
+% series ja calculadas, so recortam e renormalizam o que e desenhado.
 
 % --- Saving ---------------------------------------------------------
 % Time histories are stored at the tip degree of freedom.  The RK runs
@@ -287,6 +310,14 @@ for ic = 1:2
     end
     amortecido = xiL > 0;
 
+    % Periodo do zoom (ver cabecalho): ultimo periodo sem amortecimento,
+    % primeiro periodo com amortecimento.
+    if amortecido
+        zTIni = 0;                        zTFim = min(1,nPerImpl)*T1;
+    else
+        zTIni = max(nPerImpl-1,0)*T1;     zTFim = nPerImpl*T1;
+    end
+
     tRef = (0:nS)*hImpl;
     [Uex, Vex, Aex] = viga_solucao_exata(tRef, M, mdl.w, mdl.Phi, ximo, u0, v0);
 
@@ -351,7 +382,27 @@ for ic = 1:2
     xlim([tIni/T1 tFim/T1]);  ylim([-YCLIP YCLIP]);
     set(fig,'Units','centimeters','Position',FIGPOS);
     set(gca,'FontName','Times New Roman','FontSize',FS);
+    axMain = gca;   % antes de o inset criar um eixo novo
+
+    % --- Curvas que entram no zoom (as mesmas ja desenhadas acima) -----
+    curvasZ = struct('t',{},'u',{},'cor',{},'nome',{});
+    for k = 1:numel(dirNames)
+        if strcmpi(dirNames{k},'DC') && skipDC, continue; end
+        curvasZ(end+1) = struct('t', res.time.(tag).(dirNames{k}).t, ...
+            'u', res.time.(tag).(dirNames{k}).u_tip, ...
+            'cor', coresDir(k,:), 'nome', dirLabel{k}); %#ok<SAGROW>
+    end
+
+    % 1) Inset ampliado na figura de janela normal, antes de salva-la.
+    add_zoom_periodo(axMain, tRef, Uex(iTip,:), curvasZ, zTIni, zTFim, T1, FS, YCLIP);
     viga_salva_figura(fig, outDir, sprintf('viga_desloc_direto_%s',tag));
+
+    % 2) Figura propria, com esse periodo como janela unica.
+    figZ = figura_periodo(tRef, Uex(iTip,:), curvasZ, zTIni, zTFim, T1, ...
+        sprintf('Tip displacement, implicit schemes, period %d ($h/T_1 = %.2f$, $\\xi = %.1f$)', ...
+            round(zTFim/T1), hRat, xiL), ...
+        sprintf('Tip disp direct %s zoom',tag), YCLIP, FIGPOS, FS);
+    viga_salva_figura(figZ, outDir, sprintf('viga_desloc_direto_%s_zoom',tag));
 end
 
 %% ==================================================================
@@ -375,6 +426,20 @@ for ic = 1:2
     else,       Cm = C;   ximo = mdl.damp.xi; xiL = p.xi_target;
     end
     amortecido = xiL > 0;
+
+    % Periodo do zoom (ver cabecalho), contado em periodos de T1 da
+    % simulacao RK - que tem duracao propria (nPerRK), nao a dos diretos.
+    if amortecido
+        zTIni = 0;                      zTFim = min(1,nPerRK)*T1;
+    else
+        zTIni = max(nPerRK-1,0)*T1;     zTFim = nPerRK*T1;
+    end
+    % Referencia exata PROPRIA do zoom: tFine abaixo so cobre a janela
+    % normal, e o periodo do zoom pode cair fora dela (depende de
+    % n_amostras/tolDecaimento). Forma fechada, barata.
+    tZoom   = linspace(zTIni, zTFim, 2000);
+    UexZ    = viga_solucao_exata(tZoom, M, mdl.w, mdl.Phi, ximo, u0, v0);
+    uexZoom = UexZ(iTip,:);
 
     % Janela mostrada: mesma regra de tres regimes usada acima para os
     % metodos diretos (viga_janela_plot.m). A deteccao usa uma varredura
@@ -431,7 +496,27 @@ for ic = 1:2
     xlim([tIniRK/T1 tFimRK/T1]);  ylim([-YCLIP YCLIP]);
     set(fig,'Units','centimeters','Position',FIGPOS);
     set(gca,'FontName','Times New Roman','FontSize',FS);
+    axMain = gca;   % antes de o inset criar um eixo novo
+
+    % --- Curvas que entram no zoom (as series decimadas guardadas acima
+    %     cobrem a simulacao INTEIRA, entao servem para qualquer periodo)
+    curvasZ = struct('t',{},'u',{},'cor',{},'nome',{});
+    for k = 1:numel(rkNames)
+        curvasZ(end+1) = struct('t', res.timeRK.(tag).(rkNames{k}).t, ...
+            'u', res.timeRK.(tag).(rkNames{k}).u_tip, ...
+            'cor', coresRK(k,:), 'nome', rkNames{k}); %#ok<SAGROW>
+    end
+
+    % 1) Inset ampliado na figura de janela normal, antes de salva-la.
+    add_zoom_periodo(axMain, tZoom, uexZoom, curvasZ, zTIni, zTFim, T1, FS, YCLIP);
     viga_salva_figura(fig, outDir, sprintf('viga_desloc_rk_%s',tag));
+
+    % 2) Figura propria, com esse periodo como janela unica.
+    figZ = figura_periodo(tZoom, uexZoom, curvasZ, zTIni, zTFim, T1, ...
+        sprintf('Tip displacement, Runge-Kutta, period %d ($h = %.2e$ s, $\\xi = %.1f$)', ...
+            round(zTFim/T1), hRK, xiL), ...
+        sprintf('Tip disp RK %s zoom',tag), YCLIP, FIGPOS, FS);
+    viga_salva_figura(figZ, outDir, sprintf('viga_desloc_rk_%s_zoom',tag));
 end
 
 %% ==================================================================
@@ -531,4 +616,83 @@ function [ts, ys] = downsample_plot(t, y, nMax)
     end
     idx = unique([1, round(linspace(1, numel(t), nMax)), numel(t)]);
     ts = t(idx);  ys = y(idx);
+end
+
+function uScaleZ = escala_periodo(tExact, uExact, zTIni, zTFim)
+% Pico da resposta EXATA dentro do periodo mostrado.  A normalizacao do
+% zoom e sempre local ao periodo, nunca a do eixo principal: com
+% xi = 0.2, por exemplo, o primeiro periodo tem amplitude varias vezes
+% maior que a media da janela inteira, e reaproveitar o uScale grande
+% deixaria o zoom achatado - justamente o contrario do pedido.
+    mZ = (tExact >= zTIni) & (tExact <= zTFim);
+    uScaleZ = max(abs(uExact(mZ)));
+    if isempty(uScaleZ) || uScaleZ == 0, uScaleZ = 1; end
+end
+
+function add_zoom_periodo(axMain, tExact, uExact, curvas, zTIni, zTFim, T1, FS, YCLIP)
+% Inset ampliando UM periodo, dentro da figura de janela normal.  Mesma
+% posicao/estilo do inset do Estudo B (add_zoom_inset em
+% viga_resposta_tempo.m), generalizado aqui para servir tanto a figura
+% dos metodos diretos quanto a dos Runge-Kutta - naquele arquivo so a
+% figura direta ganha inset.
+%
+% INPUT
+%   axMain         eixo da figura principal (o inset entra na mesma figura)
+%   tExact,uExact  referencia exata cobrindo ao menos [zTIni,zTFim]
+%   curvas         struct array com .t, .u, .cor de cada metodo desenhado
+%   zTIni,zTFim    limites do periodo mostrado [s]
+%   T1, FS, YCLIP  periodo de referencia, fonte e corte do eixo y
+%
+% O corte YCLIP vale aqui tambem: sem ele, um metodo instavel (RK1/RK2 no
+% caso sem amortecimento, ja com valores enormes no periodo 12) faria o
+% autoscale do inset achatar todas as outras curvas contra o eixo.
+    uScaleZ = escala_periodo(tExact, uExact, zTIni, zTFim);
+
+    pos = get(axMain,'Position');
+    axZoom = axes('Parent', ancestor(axMain,'figure'), ...
+        'Position',[pos(1)+0.55*pos(3), pos(2)+0.12*pos(4), ...
+                    0.40*pos(3), 0.38*pos(4)]);
+    hold(axZoom,'on'); box(axZoom,'on');
+
+    mZ = (tExact >= zTIni) & (tExact <= zTFim);
+    plot(axZoom, tExact(mZ)/T1, uExact(mZ)/uScaleZ, 'k--', 'LineWidth', 1.5);
+    for k = 1:numel(curvas)
+        mk = (curvas(k).t >= zTIni) & (curvas(k).t <= zTFim);
+        [tp,yp] = downsample_plot(curvas(k).t(mk), curvas(k).u(mk)/uScaleZ);
+        plot(axZoom, tp/T1, yp, '-', 'Color', curvas(k).cor, 'LineWidth', 1.1);
+    end
+    xlim(axZoom, [zTIni zTFim]/T1);  ylim(axZoom, [-YCLIP YCLIP]);
+    grid(axZoom,'on');
+    set(axZoom,'FontSize',max(FS-6,8));
+    title(axZoom, sprintf('zoom: $t/T_1 \\in [%.0f,%.0f]$', zTIni/T1, zTFim/T1), ...
+        'Interpreter','latex','FontSize',max(FS-6,8));
+end
+
+function figZ = figura_periodo(tExact, uExact, curvas, zTIni, zTFim, T1, ...
+                               titulo, nomeFig, YCLIP, FIGPOS, FS)
+% A mesma ampliacao do inset, mas ocupando a figura INTEIRA: a janela
+% principal e so o periodo escolhido.  E a versao legivel para o paper,
+% em arquivo proprio (sufixo _zoom), ao lado da figura de janela normal.
+% Reaproveita as series ja calculadas - nao roda integrador nenhum.
+    uScaleZ = escala_periodo(tExact, uExact, zTIni, zTFim);
+
+    figZ = figure('Name',nomeFig,'NumberTitle','off');
+    mZ = (tExact >= zTIni) & (tExact <= zTFim);
+    plot(tExact(mZ)/T1, uExact(mZ)/uScaleZ, 'k--', 'LineWidth', 2); hold on;
+    leg = {'Exact'};
+    for k = 1:numel(curvas)
+        mk = (curvas(k).t >= zTIni) & (curvas(k).t <= zTFim);
+        [tp,yp] = downsample_plot(curvas(k).t(mk), curvas(k).u(mk)/uScaleZ);
+        plot(tp/T1, yp, '-', 'Color', curvas(k).cor, 'LineWidth', 1.3);
+        leg{end+1} = curvas(k).nome; %#ok<AGROW>
+    end
+
+    grid on;
+    xlabel('$t/T_1$', 'Interpreter','latex');
+    ylabel('$w_{tip}/w_{ref}$', 'Interpreter','latex');
+    title(titulo, 'Interpreter','latex');
+    legend(leg, 'Location','northeast', 'FontSize', 12);
+    xlim([zTIni zTFim]/T1);  ylim([-YCLIP YCLIP]);
+    set(figZ,'Units','centimeters','Position',FIGPOS);
+    set(gca,'FontName','Times New Roman','FontSize',FS);
 end
